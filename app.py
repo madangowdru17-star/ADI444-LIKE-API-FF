@@ -27,10 +27,8 @@ TOKEN_CACHE = {}
 
 app = Flask(__name__)
 
-# UPDATED: Increased daily limit
-KEY_LIMIT = 500  # Changed from 90
+KEY_LIMIT = 500
 tracker = defaultdict(lambda: [0, time.time()])
-
 liked_cache = defaultdict(set)
 
 def get_today_midnight_timestamp():
@@ -44,6 +42,8 @@ def load_accounts(server_name):
             filename = "account_ind.txt"
         elif server_name in {"BR", "US", "SAC", "NA"}:
             filename = "account_br.txt"
+        elif server_name == "MENA":
+            filename = "account_mena.txt"
         else:
             filename = "account_bd.txt"
         
@@ -157,9 +157,7 @@ async def send_like(encrypted_uid, token, url):
         return 500
 
 async def process_account(target_uid, encrypted_uid, account, url, semaphore, server_name):
-    """Process single account with retry logic"""
     async with semaphore:
-        # Generate token with retry
         token = None
         for attempt in range(3):
             token = await get_valid_token(account['uid'], account['password'])
@@ -170,7 +168,6 @@ async def process_account(target_uid, encrypted_uid, account, url, semaphore, se
         if not token:
             return 500, account['uid']
         
-        # Send like with retry
         for attempt in range(2):
             status = await send_like(encrypted_uid, token, url)
             if status == 200:
@@ -179,6 +176,53 @@ async def process_account(target_uid, encrypted_uid, account, url, semaphore, se
             await asyncio.sleep(1)
         
         return status, account['uid']
+
+# ----- NEW SEQUENTIAL FUNCTION -----
+async def send_likes_sequential(target_uid, server_name, url, limit):
+    """
+    Send likes one by one until the requested limit is reached.
+    Returns a dict with success/failed counts.
+    """
+    accounts = load_accounts(server_name)
+    if not accounts:
+        return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit}
+    
+    random.shuffle(accounts)
+    success_count = 0
+    failed_count = 0
+    
+    # Prepare encrypted message once
+    protobuf_message = create_protobuf_message(target_uid, server_name)
+    encrypted_uid = encrypt_message(protobuf_message)
+    
+    for acc in accounts:
+        if success_count >= limit:
+            break
+        
+        # Generate token
+        token = await get_valid_token(acc['uid'], acc['password'])
+        if not token:
+            failed_count += 1
+            continue
+        
+        # Send like
+        status = await send_like(encrypted_uid, token, url)
+        if status == 200:
+            success_count += 1
+            liked_cache[target_uid].add(acc['uid'])
+        else:
+            failed_count += 1
+        
+        # Small delay to be gentle
+        await asyncio.sleep(0.3)
+    
+    return {
+        'success': success_count,
+        'failed': failed_count,
+        'total': len(accounts),
+        'limit_requested': limit
+    }
+# ----------------------------------
 
 async def send_all_likes(target_uid, server_name, url):
     region = server_name
@@ -189,11 +233,6 @@ async def send_all_likes(target_uid, server_name, url):
     if not accounts: 
         return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0}
     
-    # FIXED: Use all accounts, don't filter by cache
-    # already_liked = liked_cache.get(target_uid, set())
-    # fresh_accounts = [acc for acc in accounts if acc['uid'] not in already_liked]
-    
-    # Use all accounts directly
     fresh_accounts = accounts
     
     print(f"📊 Total accounts: {len(accounts)}")
@@ -210,12 +249,10 @@ async def send_all_likes(target_uid, server_name, url):
     
     random.shuffle(fresh_accounts)
     
-    # FIXED: Use lower concurrency for better success rate
-    semaphore = asyncio.Semaphore(15)  # Changed from 25
+    semaphore = asyncio.Semaphore(15)
     tasks = []
     
-    # FIXED: Use all accounts, not limited to 50
-    for acc in fresh_accounts[:1000]:  # Increased from 50 to 1000
+    for acc in fresh_accounts[:1000]:
         tasks.append(process_account(target_uid, encrypted_uid, acc, url, semaphore, server_name))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -257,6 +294,8 @@ def get_player_info(encrypted_uid, server_name, token):
         url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
+    elif server_name == "MENA":
+        url = "https://clientbp.ggpolarbear.com/GetPlayerPersonalShow"
     else:
         url = "https://clientbp.ggpolarbear.com/GetPlayerPersonalShow"
 
@@ -281,6 +320,10 @@ def handle_requests():
     server_name = request.args.get("server_name", "").upper()
     key = request.args.get("key")
     client_ip = request.remote_addr
+    
+    # New optional parameter: number of likes to send
+    likes_param = request.args.get("likes")
+    requested_likes = int(likes_param) if likes_param and likes_param.isdigit() else None
 
     if key != "JMLB":
         return jsonify({"error": "Invalid or missing API key 🔑"}), 403
@@ -288,7 +331,7 @@ def handle_requests():
     if not uid or not server_name:
         return jsonify({"error": "UID and server_name are required"}), 400
 
-    valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD","RU"]
+    valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD", "RU", "MENA"]
     if server_name not in valid_servers:
         return jsonify({"error": f"Invalid server. Use: {valid_servers}"}), 400
 
@@ -335,10 +378,18 @@ def handle_requests():
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         like_url = "https://client.us.freefiremobile.com/LikeProfile"
+    elif server_name == "MENA":
+        like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
-    result = asyncio.run(send_all_likes(uid, server_name, like_url))
+    # Choose sending mode based on requested_likes
+    if requested_likes and requested_likes > 0:
+        result = asyncio.run(send_likes_sequential(uid, server_name, like_url, requested_likes))
+        success_count = result['success']
+    else:
+        result = asyncio.run(send_all_likes(uid, server_name, like_url))
+        success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
     if after is None:
@@ -350,7 +401,9 @@ def handle_requests():
         player_id = int(after_data['AccountInfo']['UID'])
         player_name = str(after_data['AccountInfo']['PlayerNickname'])
         
-        like_given = after_like - before_like
+        # Use the actual success count from our sending logic
+        like_given = success_count  # overwrite the difference if you prefer, but the API should show actual sent count
+        
         status = 1 if like_given != 0 else 2
         
         if like_given > 0:
@@ -387,6 +440,7 @@ if __name__ == '__main__':
     print("   - account_ind.txt (IND server)")
     print("   - account_br.txt (BR/US/SAC/NA servers)")
     print("   - account_bd.txt (BD/RU server)")
+    print("   - account_mena.txt (MENA server)")
     print("🧠 Smart feature: Tracks which accounts already liked")
     print("⚡ Only fresh accounts will send likes")
     app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
