@@ -15,19 +15,122 @@ import like_count_pb2
 import uid_generator_pb2
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, timedelta
 import random
 import os
 import urllib.parse
 import jwt
 from datetime import timedelta
+import pickle
+import threading
 
 TOKEN_CACHE = {}
 app = Flask(__name__)
 
 KEY_LIMIT = 500
 tracker = defaultdict(lambda: [0, time.time()])
-liked_cache = defaultdict(set)
+
+# NEW: Persistent storage for liked UIDs
+LIKED_DATA_FILE = "liked_data.pkl"
+liked_cache = defaultdict(set)  # target_uid -> set of account_uids that liked it
+like_timestamps = {}  # target_uid -> timestamp when liked
+
+# NEW: Daily reset at 3 AM IST
+RESET_HOUR = 3
+RESET_MINUTE = 0
+RESET_SECOND = 0
+
+def load_liked_data():
+    """Load liked data from file"""
+    global liked_cache, like_timestamps
+    try:
+        if os.path.exists(LIKED_DATA_FILE):
+            with open(LIKED_DATA_FILE, 'rb') as f:
+                data = pickle.load(f)
+                liked_cache = data.get('liked_cache', defaultdict(set))
+                like_timestamps = data.get('like_timestamps', {})
+                print(f"✅ Loaded liked data: {len(liked_cache)} entries")
+                print(f"📊 Total accounts that liked: {sum(len(v) for v in liked_cache.values())}")
+    except Exception as e:
+        print(f"❌ Error loading liked data: {e}")
+        liked_cache = defaultdict(set)
+        like_timestamps = {}
+
+def save_liked_data():
+    """Save liked data to file"""
+    try:
+        data = {
+            'liked_cache': liked_cache,
+            'like_timestamps': like_timestamps
+        }
+        with open(LIKED_DATA_FILE, 'wb') as f:
+            pickle.dump(data, f)
+        print(f"💾 Saved liked data: {len(liked_cache)} entries")
+    except Exception as e:
+        print(f"❌ Error saving liked data: {e}")
+
+def is_uid_liked_in_24hrs(target_uid, account_uid):
+    """Check if this account already liked this UID in last 24 hours"""
+    key = f"{account_uid}:{target_uid}"
+    if key in like_timestamps:
+        last_liked = datetime.fromtimestamp(like_timestamps[key])
+        if datetime.now() - last_liked < timedelta(hours=24):
+            return True
+    return False
+
+def mark_as_liked(target_uid, account_uid):
+    """Mark that this account liked this UID"""
+    key = f"{account_uid}:{target_uid}"
+    like_timestamps[key] = datetime.now().timestamp()
+    liked_cache[target_uid].add(account_uid)
+    save_liked_data()
+
+def get_next_reset_time():
+    """Get next reset time at 3 AM IST"""
+    now = datetime.now()
+    reset_time = datetime(now.year, now.month, now.day, RESET_HOUR, RESET_MINUTE, RESET_SECOND)
+    
+    # If current time is past today's reset, set to tomorrow
+    if now >= reset_time:
+        reset_time += timedelta(days=1)
+    
+    return reset_time
+
+def daily_reset_task():
+    """Background task to reset at 3 AM IST daily"""
+    while True:
+        try:
+            next_reset = get_next_reset_time()
+            wait_seconds = (next_reset - datetime.now()).total_seconds()
+            
+            if wait_seconds > 0:
+                print(f"⏰ Next reset at: {next_reset.strftime('%Y-%m-%d %H:%M:%S')} IST")
+                time.sleep(wait_seconds)
+            
+            # Perform reset
+            print(f"🔄 Performing daily reset at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+            reset_liked_data()
+            
+        except Exception as e:
+            print(f"❌ Reset task error: {e}")
+            time.sleep(60)
+
+def reset_liked_data():
+    """Reset all liked data (called at 3 AM IST)"""
+    global liked_cache, like_timestamps
+    liked_cache.clear()
+    like_timestamps.clear()
+    save_liked_data()
+    print(f"✅ Reset complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+    print(f"📊 Cache cleared - all accounts can like again")
+
+# Load existing data on startup
+load_liked_data()
+
+# Start background reset thread
+reset_thread = threading.Thread(target=daily_reset_task, daemon=True)
+reset_thread.start()
+print("🚀 Background reset task started")
 
 def get_today_midnight_timestamp():
     now = datetime.now()
@@ -95,8 +198,7 @@ async def generate_jwt_token(uid, password):
                         elif 'token' in data:
                             return data['token']
                 return None
-    except Exception as e:
-        print(f"JWT error: {e}")
+    except:
         return None
 
 async def get_valid_token(uid, password):
@@ -152,19 +254,19 @@ async def send_like(encrypted_uid, token, url):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=edata, headers=headers, timeout=8) as response:
                 return response.status
-    except Exception as e:
-        print(f"Send like error: {e}")
+    except:
         return 500
 
 async def send_likes_sequential(target_uid, server_name, url, limit):
-    """Send likes one by one until limit reached"""
+    """Send likes one by one until limit reached, checking 24-hour rule"""
     accounts = load_accounts(server_name)
     if not accounts:
-        return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit}
+        return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit, 'skipped_24hr': 0}
     
     random.shuffle(accounts)
     success_count = 0
     failed_count = 0
+    skipped_count = 0
     
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
@@ -172,6 +274,11 @@ async def send_likes_sequential(target_uid, server_name, url, limit):
     for acc in accounts:
         if success_count >= limit:
             break
+        
+        # CHECK: Has this account liked this UID in last 24 hours?
+        if is_uid_liked_in_24hrs(target_uid, acc['uid']):
+            skipped_count += 1
+            continue
         
         token = await get_valid_token(acc['uid'], acc['password'])
         if not token:
@@ -181,7 +288,8 @@ async def send_likes_sequential(target_uid, server_name, url, limit):
         status = await send_like(encrypted_uid, token, url)
         if status == 200:
             success_count += 1
-            liked_cache[target_uid].add(acc['uid'])
+            # Mark this account as having liked this UID
+            mark_as_liked(target_uid, acc['uid'])
             print(f"✅ Like {success_count}/{limit} from {acc['uid']}")
         else:
             failed_count += 1
@@ -192,7 +300,8 @@ async def send_likes_sequential(target_uid, server_name, url, limit):
         'success': success_count,
         'failed': failed_count,
         'total': len(accounts),
-        'limit_requested': limit
+        'limit_requested': limit,
+        'skipped_24hr': skipped_count
     }
 
 async def send_all_likes(target_uid, server_name, url):
@@ -202,21 +311,30 @@ async def send_all_likes(target_uid, server_name, url):
     
     accounts = load_accounts(server_name)
     if not accounts: 
-        return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0}
+        return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0, 'skipped_24hr': 0}
     
-    already_liked = liked_cache.get(target_uid, set())
-    fresh_accounts = [acc for acc in accounts if acc['uid'] not in already_liked]
+    # Filter: Skip accounts that already liked this UID in 24 hours
+    fresh_accounts = []
+    skipped_24hr = 0
+    
+    for acc in accounts:
+        if is_uid_liked_in_24hrs(target_uid, acc['uid']):
+            skipped_24hr += 1
+        else:
+            fresh_accounts.append(acc)
     
     print(f"📊 Total accounts: {len(accounts)}")
     print(f"✅ Fresh accounts: {len(fresh_accounts)}")
+    print(f"⏭️ Skipped (24hr rule): {skipped_24hr}")
     
     if not fresh_accounts:
         return {
             'success': 0, 
             'failed': 0, 
             'total': len(accounts),
-            'already_liked': len(already_liked),
-            'fresh_used': 0
+            'already_liked': 0,
+            'fresh_used': 0,
+            'skipped_24hr': skipped_24hr
         }
     
     random.shuffle(fresh_accounts)
@@ -235,6 +353,7 @@ async def send_all_likes(target_uid, server_name, url):
             status, uid = r
             if status == 200:
                 successful += 1
+                mark_as_liked(target_uid, uid)
             else:
                 failed += 1
     
@@ -242,8 +361,9 @@ async def send_all_likes(target_uid, server_name, url):
         'success': successful,
         'failed': failed,
         'total': len(accounts),
-        'already_liked': len(already_liked),
-        'fresh_used': len(fresh_accounts[:1000])
+        'already_liked': 0,
+        'fresh_used': len(fresh_accounts[:1000]),
+        'skipped_24hr': skipped_24hr
     }
 
 async def process_account(target_uid, encrypted_uid, account, url, semaphore, server_name):
@@ -254,7 +374,7 @@ async def process_account(target_uid, encrypted_uid, account, url, semaphore, se
         
         status = await send_like(encrypted_uid, token, url)
         if status == 200:
-            liked_cache[target_uid].add(account['uid'])
+            mark_as_liked(target_uid, account['uid'])
             return status, account['uid']
         
         return status, account['uid']
@@ -295,8 +415,7 @@ def get_player_info(encrypted_uid, server_name, token):
     try:
         response = requests.post(url, data=edata, headers=headers, verify=False, timeout=10)
         return decode_protobuf(response.content)
-    except Exception as e:
-        print(f"Get player info error: {e}")
+    except:
         return None
 
 @app.route('/like', methods=['GET'])
@@ -355,8 +474,8 @@ def handle_requests():
     try:
         before_data = json.loads(MessageToJson(before))
         before_like = int(before_data['AccountInfo'].get('Likes', 0))
-    except Exception as e:
-        return jsonify({"error": f"Data parsing failed: {e}", "status": 0}), 200
+    except:
+        return jsonify({"error": "Data parsing failed", "status": 0}), 200
 
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
@@ -370,11 +489,9 @@ def handle_requests():
     if requested_likes and requested_likes > 0:
         result = asyncio.run(send_likes_sequential(uid, server_name, like_url, requested_likes))
         success_count = result['success']
-        total_sent_info = result
     else:
         result = asyncio.run(send_all_likes(uid, server_name, like_url))
         success_count = result['success']
-        total_sent_info = result
 
     after = get_player_info(encrypted_uid, server_name, check_token)
     if after is None:
@@ -394,6 +511,9 @@ def handle_requests():
             count += 1
         
         remains = KEY_LIMIT - count
+        
+        # Get next reset time
+        next_reset = get_next_reset_time()
 
         return jsonify({
             "LikesGivenByAPI": success_count,
@@ -405,7 +525,9 @@ def handle_requests():
             "status": status,
             "remains": f"({remains}/{KEY_LIMIT})",
             "total_accounts": len(accounts),
-            "limit_requested": requested_likes if requested_likes else "all"
+            "limit_requested": requested_likes if requested_likes else "all",
+            "skipped_24hr_rule": result.get('skipped_24hr', 0),
+            "next_reset_at": next_reset.strftime('%Y-%m-%d %H:%M:%S IST')
         })
     except Exception as e:
         return jsonify({"error": str(e), "status": 0}), 500
@@ -416,9 +538,28 @@ def reset_cache():
     if key != "JMLB":
         return jsonify({"error": "Invalid key"}), 403
     
-    global liked_cache
+    global liked_cache, like_timestamps
     liked_cache.clear()
-    return jsonify({"message": "Cache cleared", "credit": "@minister_69"})
+    like_timestamps.clear()
+    save_liked_data()
+    return jsonify({"message": "Cache cleared - all accounts can like again", "credit": "@minister_69"})
+
+@app.route('/stats', methods=['GET'])
+def get_stats():
+    key = request.args.get("key")
+    if key != "JMLB":
+        return jsonify({"error": "Invalid key"}), 403
+    
+    total_likes = sum(len(v) for v in liked_cache.values())
+    total_uids = len(liked_cache)
+    next_reset = get_next_reset_time()
+    
+    return jsonify({
+        "total_uids_liked": total_uids,
+        "total_likes_sent": total_likes,
+        "next_reset_at": next_reset.strftime('%Y-%m-%d %H:%M:%S IST'),
+        "reset_time": "3:00 AM IST Daily"
+    })
 
 @app.route('/health', methods=['GET'])
 def health_check():
@@ -427,7 +568,9 @@ def health_check():
         "status": "healthy",
         "accounts_loaded": len(accounts),
         "token_cache": len(TOKEN_CACHE),
-        "server": "Railway"
+        "server": "Railway",
+        "24hr_rule": "Active",
+        "reset_time": "3:00 AM IST Daily"
     })
 
 @app.route('/', methods=['GET'])
@@ -435,11 +578,14 @@ def home():
     return jsonify({
         "message": "✅ API is running!",
         "endpoints": {
-            "/like": "Send likes to a UID",
+            "/like": "Send likes to a UID (checks 24-hour rule)",
             "/health": "Check API health",
-            "/reset-cache": "Reset liked cache"
+            "/reset-cache": "Reset liked cache",
+            "/stats": "View statistics"
         },
         "usage": "/like?uid=TARGET_UID&server_name=IND&key=JMLB&likes=10",
+        "24hr_rule": "Each account can only like a UID once every 24 hours",
+        "reset_time": "3:00 AM IST Daily",
         "credit": "@minister_69"
     })
 
@@ -448,4 +594,5 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
     print("🚀 Server started on Railway!")
     print("📁 Account files loaded")
+    print("⏰ 24-hour rule active - resets daily at 3 AM IST")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
