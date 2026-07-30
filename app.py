@@ -19,16 +19,18 @@ from datetime import datetime
 import random
 import os
 import urllib.parse
+
 import jwt
 from datetime import timedelta
 
 TOKEN_CACHE = {}
-TOKEN_FAILED = set()  # Track accounts that fail token generation
 
 app = Flask(__name__)
 
-KEY_LIMIT = 500
-tracker = defaultdict(lambda: [0, time.time()])
+KEY_LIMIT = 90
+tracker = defaultdict(lambda: [0, time.time()])  # IP based tracking
+
+# Store which accounts have liked which UIDs (temporary memory)
 liked_cache = defaultdict(set)
 
 def get_today_midnight_timestamp():
@@ -37,16 +39,17 @@ def get_today_midnight_timestamp():
     return midnight.timestamp()
 
 def load_accounts(server_name):
+    """Load UID:Password from server-specific file"""
     try:
+        # Map server to filename
         if server_name == "IND":
             filename = "account_ind.txt"
         elif server_name in {"BR", "US", "SAC", "NA"}:
             filename = "account_br.txt"
-        elif server_name == "MENA":
-            filename = "account_mena.txt"
-        else:
+        else:  # BD and others
             filename = "account_bd.txt"
         
+        # Check if file exists
         if not os.path.exists(filename):
             print(f"⚠️ {filename} not found, trying account_ind.txt")
             filename = "account_ind.txt"
@@ -82,52 +85,56 @@ def load_accounts(server_name):
         return []
 
 async def generate_jwt_token(uid, password):
+    """Generate JWT token"""
     try:
-        # Try multiple token generation endpoints for redundancy
-        endpoints = [
-            f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={urllib.parse.quote(password)}",
-            f"https://ff-jwt-gen-api.vercel.app/api/public/token?uid={uid}&password={urllib.parse.quote(password)}"
-        ]
+        encoded_password = urllib.parse.quote(password)
+        url = f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={encoded_password}"
         
         async with aiohttp.ClientSession() as session:
-            for url in endpoints:
-                try:
-                    async with session.get(url, timeout=10) as response:
-                        if response.status == 200:
-                            data = await response.json()
-                            if isinstance(data, dict):
-                                token = data.get('jwt_token') or data.get('token')
-                                if token:
-                                    return token
-                except:
-                    continue
-            return None
+            async with session.get(url, timeout=24) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    if isinstance(data, dict):
+                        if 'jwt_token' in data:
+                            return data['jwt_token']
+                        elif 'token' in data:
+                            return data['token']
+                return None
     except:
         return None
 
+
 async def get_valid_token(uid, password):
-    # Skip accounts that previously failed
-    if uid in TOKEN_FAILED:
-        return None
-        
+
     if uid in TOKEN_CACHE:
         cached = TOKEN_CACHE[uid]
-        remaining = (cached["expires_at"] - datetime.utcnow()).total_seconds()
+
+        remaining = (
+            cached["expires_at"] - datetime.utcnow()
+        ).total_seconds()
+
         if remaining > 1800:
             return cached["token"]
 
     token = await generate_jwt_token(uid, password)
+
     if not token:
-        TOKEN_FAILED.add(uid)
         return None
 
     try:
-        payload = jwt.decode(token, options={"verify_signature": False})
+        payload = jwt.decode(
+            token,
+            options={"verify_signature": False}
+        )
+
         exp = payload.get("exp")
+
         TOKEN_CACHE[uid] = {
             "token": token,
             "expires_at": datetime.utcfromtimestamp(exp)
         }
+
     except:
         TOKEN_CACHE[uid] = {
             "token": token,
@@ -149,96 +156,89 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_with_retry(encrypted_uid, token, url, max_retries=3):
-    """Send like with retry logic"""
-    edata = bytes.fromhex(encrypted_uid)
-    headers = {
-        'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
-        'Authorization': f"Bearer {token}",
-        'Content-Type': "application/x-www-form-urlencoded",
-        'X-GA': "v1 1",
-        'ReleaseVersion': "OB54"
-    }
-    
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=edata, headers=headers, timeout=8) as response:
-                    if response.status == 200:
-                        return True
-                    elif response.status == 429:  # Rate limited
-                        await asyncio.sleep(2)
-                        continue
-                    elif response.status in [401, 403]:  # Token expired
-                        return False
-        except:
-            await asyncio.sleep(0.5)
-            continue
-    return False
+async def check_if_already_liked(target_uid, token, server_name):
+    """Check if already liked by getting profile info"""
+    try:
+        encrypted_uid = enc(target_uid)
+        info = get_player_info(encrypted_uid, server_name, token)
+        if info:
+            # Can't directly check, so we'll rely on response
+            return False
+        return False
+    except:
+        return False
 
-async def send_likes_sequential(target_uid, server_name, url, limit):
-    """Send likes one by one with proper validation"""
-    accounts = load_accounts(server_name)
-    if not accounts:
-        return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit}
-    
-    # Shuffle and take only needed accounts
-    random.shuffle(accounts)
-    accounts_to_use = accounts[:min(limit * 3, len(accounts))]  # 3x buffer for failures
-    
-    success_count = 0
-    failed_count = 0
-    
-    protobuf_message = create_protobuf_message(target_uid, server_name)
-    encrypted_uid = encrypt_message(protobuf_message)
-    
-    for idx, acc in enumerate(accounts_to_use):
-        if success_count >= limit:
-            break
-            
+async def send_like(encrypted_uid, token, url):
+    """Send like with token"""
+    try:
+        edata = bytes.fromhex(encrypted_uid)
+        headers = {
+            'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
+            'Authorization': f"Bearer {token}",
+            'Content-Type': "application/x-www-form-urlencoded",
+            'X-GA': "v1 1",
+            'ReleaseVersion': "OB54"
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=edata, headers=headers, timeout=5) as response:
+                return response.status
+    except:
+        return 500
+
+async def process_account(target_uid, encrypted_uid, account, url, semaphore, server_name):
+    """Process single account with smart checking"""
+    async with semaphore:
+        # Check if this account already liked this UID today
+        account_key = f"{account['uid']}:{target_uid}"
+        
         # Generate token
-        token = await get_valid_token(acc['uid'], acc['password'])
+        token = await get_valid_token(account['uid'], account['password'])
         if not token:
-            failed_count += 1
-            continue
+            return 500, account['uid']
         
-        # Send like with retry
-        success = await send_like_with_retry(encrypted_uid, token, url)
+        # Send like
+        status = await send_like(encrypted_uid, token, url)
         
-        if success:
-            success_count += 1
-            liked_cache[target_uid].add(acc['uid'])
-            print(f"✅ Like {success_count}/{limit} from {acc['uid']}")
-        else:
-            failed_count += 1
+        # If successful, mark as liked
+        if status == 200:
+            liked_cache[target_uid].add(account['uid'])
+            return status, account['uid']
         
-        # Add delay between requests to avoid rate limiting
-        await asyncio.sleep(0.5 + random.random())
-    
-    return {
-        'success': success_count,
-        'failed': failed_count,
-        'total': len(accounts),
-        'limit_requested': limit,
-        'accounts_used': len(accounts_to_use)
-    }
+        return status, account['uid']
 
 async def send_all_likes(target_uid, server_name, url):
+    """Send likes from all accounts with smart checking"""
     region = server_name
     protobuf_message = create_protobuf_message(target_uid, region)
     encrypted_uid = encrypt_message(protobuf_message)
     
     accounts = load_accounts(server_name)
     if not accounts: 
-        return {'success': 0, 'failed': 0, 'total': 0}
+        return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0}
     
-    random.shuffle(accounts)
+    # Filter out accounts that already liked this UID
+    already_liked = liked_cache.get(target_uid, set())
+    fresh_accounts = [acc for acc in accounts if acc['uid'] not in already_liked]
     
-    # Limit concurrent to avoid Vercel timeout
-    semaphore = asyncio.Semaphore(10)
+    print(f"📊 Total accounts: {len(accounts)}")
+    print(f"✅ Fresh accounts: {len(fresh_accounts)}")
+    print(f"⏭️  Already liked: {len(already_liked)}")
+    
+    if not fresh_accounts:
+        return {
+            'success': 0, 
+            'failed': 0, 
+            'total': len(accounts),
+            'already_liked': len(already_liked),
+            'fresh_used': 0
+        }
+    
+    random.shuffle(fresh_accounts)
+    
+    semaphore = asyncio.Semaphore(25)
     tasks = []
-    
-    for acc in accounts[:200]:  # Limit to 200 for Vercel
+    for acc in fresh_accounts[:2000]:  # Limit to 50 fresh accounts per request
         tasks.append(process_account(target_uid, encrypted_uid, acc, url, semaphore, server_name))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)
@@ -256,21 +256,10 @@ async def send_all_likes(target_uid, server_name, url):
     return {
         'success': successful,
         'failed': failed,
-        'total': len(accounts)
+        'total': len(accounts),
+        'already_liked': len(already_liked),
+        'fresh_used': len(fresh_accounts[:2000])
     }
-
-async def process_account(target_uid, encrypted_uid, account, url, semaphore, server_name):
-    async with semaphore:
-        token = await get_valid_token(account['uid'], account['password'])
-        if not token:
-            return 500, account['uid']
-        
-        status = await send_like_with_retry(encrypted_uid, token, url, max_retries=2)
-        if status:
-            liked_cache[target_uid].add(account['uid'])
-            return 200, account['uid']
-        
-        return 500, account['uid']
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -287,12 +276,11 @@ def decode_protobuf(binary):
         return None
 
 def get_player_info(encrypted_uid, server_name, token):
+    """Get player info with proper URL for each server"""
     if server_name == "IND":
         url = "https://client.ind.freefiremobile.com/GetPlayerPersonalShow"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
-    elif server_name == "MENA":
-        url = "https://clientbp.ggpolarbear.com/GetPlayerPersonalShow"
     else:
         url = "https://clientbp.ggpolarbear.com/GetPlayerPersonalShow"
 
@@ -317,9 +305,6 @@ def handle_requests():
     server_name = request.args.get("server_name", "").upper()
     key = request.args.get("key")
     client_ip = request.remote_addr
-    
-    likes_param = request.args.get("likes")
-    requested_likes = int(likes_param) if likes_param and likes_param.isdigit() else None
 
     if key != "JMLB":
         return jsonify({"error": "Invalid or missing API key 🔑"}), 403
@@ -327,16 +312,21 @@ def handle_requests():
     if not uid or not server_name:
         return jsonify({"error": "UID and server_name are required"}), 400
 
-    valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD", "RU", "MENA"]
+    # Valid servers
+    valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD","RU"]
     if server_name not in valid_servers:
         return jsonify({"error": f"Invalid server. Use: {valid_servers}"}), 400
 
+    # Load accounts for this server
     accounts = load_accounts(server_name)
     if not accounts:
+        # Try fallback to IND
         accounts = load_accounts("IND")
         if not accounts:
             return jsonify({"error": f"No accounts found for server {server_name}"}), 500
+        print(f"⚠️ Using IND accounts as fallback for {server_name}")
     
+    # Check daily limit
     today_midnight = get_today_midnight_timestamp()
     count, last_reset = tracker[client_ip]
 
@@ -347,11 +337,12 @@ def handle_requests():
     if count >= KEY_LIMIT:
         return jsonify({"error": "Daily limit reached", "remains": f"(0/{KEY_LIMIT})"}), 429
 
-    # Get token for checking player info
+    # Generate token for checking (try multiple accounts)
     check_token = None
-    for account in accounts[:10]:
+    for account in accounts[:5]:
         check_token = asyncio.run(get_valid_token(account['uid'], account['password']))
         if check_token:
+            print(f"✅ Token generated with UID: {account['uid']}")
             break
     
     if not check_token:
@@ -359,6 +350,7 @@ def handle_requests():
     
     encrypted_uid = enc(uid)
 
+    # Before likes
     before = get_player_info(encrypted_uid, server_name, check_token)
     if before is None:
         return jsonify({"error": "Invalid UID or server", "status": 0}), 200
@@ -369,28 +361,18 @@ def handle_requests():
     except:
         return jsonify({"error": "Data parsing failed", "status": 0}), 200
 
+    # Like URL based on server
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         like_url = "https://client.us.freefiremobile.com/LikeProfile"
-    elif server_name == "MENA":
-        like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
-    # Use sequential mode for specific like count
-    if requested_likes and requested_likes > 0:
-        # Limit to reasonable number for Vercel
-        if requested_likes > 50:
-            requested_likes = 50
-            print("⚠️ Limited to 50 likes for Vercel deployment")
-        
-        result = asyncio.run(send_likes_sequential(uid, server_name, like_url, requested_likes))
-        success_count = result['success']
-    else:
-        result = asyncio.run(send_all_likes(uid, server_name, like_url))
-        success_count = result['success']
+    # Send likes with smart checking
+    result = asyncio.run(send_all_likes(uid, server_name, like_url))
 
+    # After likes
     after = get_player_info(encrypted_uid, server_name, check_token)
     if after is None:
         return jsonify({"error": "Could not verify likes after command", "status": 0}), 200
@@ -401,55 +383,47 @@ def handle_requests():
         player_id = int(after_data['AccountInfo']['UID'])
         player_name = str(after_data['AccountInfo']['PlayerNickname'])
         
-        # Calculate actual likes given (for verification)
-        actual_likes_given = after_like - before_like
+        like_given = after_like - before_like
+        status = 1 if like_given != 0 else 2
         
-        status = 1 if success_count > 0 else 2
-        
-        if success_count > 0:
+        if like_given > 0:
             tracker[client_ip][0] += 1
+            count += 1
         
-        remains = KEY_LIMIT - count - 1
+        remains = KEY_LIMIT - count
 
         return jsonify({
-            "LikesGivenByAPI": success_count,
-            "VerifiedLikesAdded": actual_likes_given,
+            "LikesGivenByAPI": like_given,
             "LikesafterCommand": after_like,
             "LikesbeforeCommand": before_like,
             "PlayerNickname": player_name,
             "UID": player_id,
             "status": status,
-            "remains": f"({remains}/{KEY_LIMIT})",
-            "accounts_available": len(accounts),
-            "total_sent": result.get('total', 0),
-            "failed": result.get('failed', 0)
+            "remains": f"({remains}/{KEY_LIMIT})",    
         })
     except Exception as e:
         return jsonify({"error": str(e), "status": 0}), 500
 
 @app.route('/reset-cache', methods=['GET'])
 def reset_cache():
+    """Reset liked cache (use carefully)"""
     key = request.args.get("key")
     if key != "JMLB":
         return jsonify({"error": "Invalid key"}), 403
     
-    global liked_cache, TOKEN_FAILED
+    global liked_cache
     liked_cache.clear()
-    TOKEN_FAILED.clear()
-    TOKEN_CACHE.clear()
     return jsonify({"message": "Cache cleared", "credit": "@minister_69"})
-
-@app.route('/health', methods=['GET'])
-def health():
-    accounts = load_accounts("IND")
-    return jsonify({
-        "status": "healthy",
-        "accounts_loaded": len(accounts),
-        "token_cache": len(TOKEN_CACHE),
-        "token_failed": len(TOKEN_FAILED)
-    })
 
 if __name__ == '__main__':
     print("🚀 Server started - Smart Like System!")
-    print("📁 Account files loaded")
+    print("📁 Account files:")
+    print("   - account_ind.txt (IND server)")
+    print("   - account_br.txt (BR/US/SAC/NA servers)")
+    print("   - account_bd.txt (BD/RU server)")
+    print("🧠 Smart feature: Tracks which accounts already liked")
+    print("⚡ Only fresh accounts will send likes")
     app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)
+# MINISTER LIKE API SRC UID PASSWORD 
+# POWERED BY : @minister_69
+# CHANNEL : @minister_6T9
