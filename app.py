@@ -19,12 +19,10 @@ from datetime import datetime
 import random
 import os
 import urllib.parse
-
 import jwt
 from datetime import timedelta
 
 TOKEN_CACHE = {}
-
 app = Flask(__name__)
 
 KEY_LIMIT = 500
@@ -97,7 +95,8 @@ async def generate_jwt_token(uid, password):
                         elif 'token' in data:
                             return data['token']
                 return None
-    except:
+    except Exception as e:
+        print(f"JWT error: {e}")
         return None
 
 async def get_valid_token(uid, password):
@@ -153,7 +152,8 @@ async def send_like(encrypted_uid, token, url):
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=edata, headers=headers, timeout=8) as response:
                 return response.status
-    except:
+    except Exception as e:
+        print(f"Send like error: {e}")
         return 500
 
 async def send_likes_sequential(target_uid, server_name, url, limit):
@@ -182,6 +182,7 @@ async def send_likes_sequential(target_uid, server_name, url, limit):
         if status == 200:
             success_count += 1
             liked_cache[target_uid].add(acc['uid'])
+            print(f"✅ Like {success_count}/{limit} from {acc['uid']}")
         else:
             failed_count += 1
         
@@ -294,7 +295,8 @@ def get_player_info(encrypted_uid, server_name, token):
     try:
         response = requests.post(url, data=edata, headers=headers, verify=False, timeout=10)
         return decode_protobuf(response.content)
-    except:
+    except Exception as e:
+        print(f"Get player info error: {e}")
         return None
 
 @app.route('/like', methods=['GET'])
@@ -353,8 +355,8 @@ def handle_requests():
     try:
         before_data = json.loads(MessageToJson(before))
         before_like = int(before_data['AccountInfo'].get('Likes', 0))
-    except:
-        return jsonify({"error": "Data parsing failed", "status": 0}), 200
+    except Exception as e:
+        return jsonify({"error": f"Data parsing failed: {e}", "status": 0}), 200
 
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
@@ -368,9 +370,11 @@ def handle_requests():
     if requested_likes and requested_likes > 0:
         result = asyncio.run(send_likes_sequential(uid, server_name, like_url, requested_likes))
         success_count = result['success']
+        total_sent_info = result
     else:
         result = asyncio.run(send_all_likes(uid, server_name, like_url))
         success_count = result['success']
+        total_sent_info = result
 
     after = get_player_info(encrypted_uid, server_name, check_token)
     if after is None:
@@ -400,7 +404,8 @@ def handle_requests():
             "UID": player_id,
             "status": status,
             "remains": f"({remains}/{KEY_LIMIT})",
-            "total_accounts": len(accounts)
+            "total_accounts": len(accounts),
+            "limit_requested": requested_likes if requested_likes else "all"
         })
     except Exception as e:
         return jsonify({"error": str(e), "status": 0}), 500
@@ -423,6 +428,19 @@ def health_check():
         "accounts_loaded": len(accounts),
         "token_cache": len(TOKEN_CACHE),
         "server": "Railway"
+    })
+
+@app.route('/', methods=['GET'])
+def home():
+    return jsonify({
+        "message": "✅ API is running!",
+        "endpoints": {
+            "/like": "Send likes to a UID",
+            "/health": "Check API health",
+            "/reset-cache": "Reset liked cache"
+        },
+        "usage": "/like?uid=TARGET_UID&server_name=IND&key=JMLB&likes=10",
+        "credit": "@minister_69"
     })
 
 if __name__ == '__main__':
