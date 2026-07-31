@@ -35,7 +35,8 @@ ACCOUNT_STATUS_FILE = "account_status.pkl"
 account_status = {}
 
 USERS_FILE = "users.pkl"
-auto_like_users = []  # List of UIDs to auto-like daily
+auto_like_users = []
+user_stats = {}  # uid -> {'total_likes': 0, 'today_likes': 0, 'last_like': None}
 
 RESET_HOUR = 5
 RESET_MINUTE = 0
@@ -44,26 +45,38 @@ RESET_SECOND = 0
 RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
 
 def load_users():
-    global auto_like_users
+    global auto_like_users, user_stats
     try:
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'rb') as f:
-                auto_like_users = pickle.load(f)
-                print(f"✅ Loaded {len(auto_like_users)} users")
+                data = pickle.load(f)
+                if isinstance(data, dict):
+                    auto_like_users = data.get('users', [])
+                    user_stats = data.get('stats', {})
+                else:
+                    auto_like_users = data
+                    user_stats = {}
+                print(f"Loaded {len(auto_like_users)} users")
         else:
             auto_like_users = []
+            user_stats = {}
             save_users()
     except Exception as e:
-        print(f"❌ Error loading users: {e}")
+        print(f"Error loading users: {e}")
         auto_like_users = []
+        user_stats = {}
 
 def save_users():
     try:
+        data = {
+            'users': auto_like_users,
+            'stats': user_stats
+        }
         with open(USERS_FILE, 'wb') as f:
-            pickle.dump(auto_like_users, f)
-        print(f"💾 Saved {len(auto_like_users)} users")
+            pickle.dump(data, f)
+        print(f"Saved {len(auto_like_users)} users")
     except Exception as e:
-        print(f"❌ Error saving users: {e}")
+        print(f"Error saving users: {e}")
 
 def load_account_status():
     global account_status
@@ -71,9 +84,9 @@ def load_account_status():
         if os.path.exists(ACCOUNT_STATUS_FILE):
             with open(ACCOUNT_STATUS_FILE, 'rb') as f:
                 account_status = pickle.load(f)
-                print(f"✅ Loaded account status: {len(account_status)} accounts")
+                print(f"Loaded account status: {len(account_status)} accounts")
     except Exception as e:
-        print(f"❌ Error loading account status: {e}")
+        print(f"Error loading account status: {e}")
         account_status = {}
 
 def save_account_status():
@@ -81,7 +94,7 @@ def save_account_status():
         with open(ACCOUNT_STATUS_FILE, 'wb') as f:
             pickle.dump(account_status, f)
     except Exception as e:
-        print(f"❌ Error saving account status: {e}")
+        print(f"Error saving account status: {e}")
 
 def load_liked_data():
     global liked_cache, like_timestamps
@@ -91,9 +104,9 @@ def load_liked_data():
                 data = pickle.load(f)
                 liked_cache = data.get('liked_cache', defaultdict(set))
                 like_timestamps = data.get('like_timestamps', {})
-                print(f"✅ Loaded liked data: {len(liked_cache)} entries")
+                print(f"Loaded liked data: {len(liked_cache)} entries")
     except Exception as e:
-        print(f"❌ Error loading liked data: {e}")
+        print(f"Error loading liked data: {e}")
         liked_cache = defaultdict(set)
         like_timestamps = {}
 
@@ -106,7 +119,7 @@ def save_liked_data():
         with open(LIKED_DATA_FILE, 'wb') as f:
             pickle.dump(data, f)
     except Exception as e:
-        print(f"❌ Error saving liked data: {e}")
+        print(f"Error saving liked data: {e}")
 
 def is_uid_liked_in_24hrs(target_uid, account_uid):
     key = f"{account_uid}:{target_uid}"
@@ -121,6 +134,14 @@ def mark_as_liked(target_uid, account_uid):
     like_timestamps[key] = datetime.now().timestamp()
     liked_cache[target_uid].add(account_uid)
     save_liked_data()
+
+def update_user_stats(target_uid, likes_given):
+    if target_uid not in user_stats:
+        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None}
+    user_stats[target_uid]['total_likes'] += likes_given
+    user_stats[target_uid]['today_likes'] += likes_given
+    user_stats[target_uid]['last_like'] = datetime.now().isoformat()
+    save_users()
 
 def log_error(account_uid, error_type, details):
     if account_uid not in account_status:
@@ -152,14 +173,17 @@ def daily_reset_task():
             time.sleep(60)
 
 def reset_all_data():
-    global liked_cache, like_timestamps, account_status
+    global liked_cache, like_timestamps, account_status, user_stats
     liked_cache.clear()
     like_timestamps.clear()
     for uid in account_status:
         account_status[uid]['status'] = 'reset'
         account_status[uid]['reset_time'] = datetime.now().isoformat()
+    for uid in user_stats:
+        user_stats[uid]['today_likes'] = 0
     save_liked_data()
     save_account_status()
+    save_users()
     print(f"Reset complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
 
 def load_accounts(server_name):
@@ -291,12 +315,16 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         return {'success': 0, 'failed': 0, 'total': 0}
     
     fresh_accounts = []
+    skipped = 0
+    
     for acc in accounts:
-        if not is_uid_liked_in_24hrs(target_uid, acc['uid']):
+        if is_uid_liked_in_24hrs(target_uid, acc['uid']):
+            skipped += 1
+        else:
             fresh_accounts.append(acc)
     
     if not fresh_accounts:
-        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': len(accounts)}
+        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped}
     
     random.shuffle(fresh_accounts)
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
@@ -321,11 +349,15 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         else:
             failed += 1
     
+    if successful > 0:
+        update_user_stats(target_uid, successful)
+    
     return {
         'success': successful,
         'failed': failed,
         'total': len(accounts),
-        'accounts_used': len(accounts_to_use)
+        'accounts_used': len(accounts_to_use),
+        'skipped': skipped
     }
 
 async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
@@ -343,6 +375,18 @@ async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
                 return {'status': 'failed', 'uid': account['uid']}
         except:
             return {'status': 'failed', 'uid': account['uid']}
+
+async def check_account_status(account):
+    token = await get_valid_token(account['uid'], account['password'])
+    if not token:
+        return False
+    
+    protobuf_message = create_protobuf_message("3997461446", "IND")
+    encrypted_uid = encrypt_message(protobuf_message)
+    url = "https://client.ind.freefiremobile.com/LikeProfile"
+    
+    success, _ = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
+    return success
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -387,7 +431,7 @@ DASHBOARD_HTML = '''
 <html>
 <head>
     <title>Auto-Like Dashboard</title>
-    <meta http-equiv="refresh" content="30">
+    <meta http-equiv="refresh" content="60">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; padding: 20px; }
@@ -395,15 +439,16 @@ DASHBOARD_HTML = '''
         .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 15px; margin-bottom: 25px; text-align: center; }
         .header h1 { font-size: 2.2em; }
         .header p { opacity: 0.8; margin-top: 5px; }
-        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 25px; }
         .status-card { background: #141928; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; }
         .status-card .number { font-size: 2.5em; font-weight: bold; }
-        .status-card .label { color: #8899bb; font-size: 0.9em; margin-top: 5px; }
+        .status-card .label { color: #8899bb; font-size: 0.85em; margin-top: 5px; }
         .green { color: #4caf50; }
         .red { color: #f44336; }
         .yellow { color: #ffc107; }
         .blue { color: #42a5f5; }
         .purple { color: #ab47bc; }
+        .cyan { color: #26c6da; }
         .panel { background: #141928; padding: 20px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 25px; }
         .panel h2 { color: #8899bb; font-size: 1.2em; margin-bottom: 15px; }
         .input-group { display: flex; gap: 10px; flex-wrap: wrap; }
@@ -414,8 +459,10 @@ DASHBOARD_HTML = '''
         .btn-delete { background: #f44336; color: #fff; }
         .btn-delete:hover { background: #c62828; }
         .user-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-        .user-item { background: #1a2240; padding: 8px 15px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid #2a3a5a; }
+        .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
+        .user-item .stats { font-size: 0.85em; color: #8899bb; }
+        .user-item .stats span { color: #4caf50; font-weight: bold; }
         .user-item .delete-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
         .user-item .delete-btn:hover { color: #ff1744; }
         table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 15px; }
@@ -439,6 +486,12 @@ DASHBOARD_HTML = '''
         .refresh-btn { background: #1a237e; color: #fff; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-size: 0.9em; transition: 0.3s; }
         .refresh-btn:hover { background: #283593; }
         .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
+        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 15px; }
+        .user-stat-card { background: #1a2240; padding: 15px; border-radius: 10px; border: 1px solid #2a3a5a; }
+        .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1.1em; }
+        .user-stat-card .stat-row { display: flex; justify-content: space-between; margin-top: 8px; font-size: 0.9em; color: #8899bb; }
+        .user-stat-card .stat-row .value { color: #4caf50; font-weight: bold; }
+        .user-stat-card .last-like { font-size: 0.8em; color: #666; margin-top: 5px; }
     </style>
 </head>
 <body>
@@ -477,15 +530,17 @@ DASHBOARD_HTML = '''
         </div>
 
         <div class="panel">
-            <h2>📋 Manage Auto-Like Users</h2>
+            <h2>Manage Auto-Like Users</h2>
             <div class="input-group">
                 <input type="number" id="user-uid" placeholder="Enter Free Fire UID" />
                 <button class="btn-add" onclick="addUser()">+ Add User</button>
+                <button class="btn-delete" onclick="deleteAllUsers()">✕ Delete All</button>
             </div>
             <div class="user-list" id="user-list">
                 {% for uid in users %}
                 <div class="user-item">
                     <span class="uid">{{ uid }}</span>
+                    <span class="stats">Total: <span>{{ user_stats.get(uid, {}).get('total_likes', 0) }}</span> | Today: <span>{{ user_stats.get(uid, {}).get('today_likes', 0) }}</span></span>
                     <button class="delete-btn" onclick="deleteUser('{{ uid }}')">✕</button>
                 </div>
                 {% endfor %}
@@ -493,7 +548,7 @@ DASHBOARD_HTML = '''
             <div class="note">Users added here will receive auto-likes daily at 5:00 AM IST</div>
         </div>
 
-        <div class="section-title">📊 Account Status</div>
+        <div class="section-title">Account Status</div>
         <table>
             <thead>
                 <tr>
@@ -517,13 +572,33 @@ DASHBOARD_HTML = '''
             </tbody>
         </table>
 
-        <div class="section-title">📝 Activity Log</div>
+        <div class="section-title">User Statistics</div>
+        <div class="user-stats-grid">
+            {% for uid, stats in user_stats.items() %}
+            <div class="user-stat-card">
+                <div class="uid">UID: {{ uid }}</div>
+                <div class="stat-row">
+                    <span>Total Likes</span>
+                    <span class="value">{{ stats.total_likes }}</span>
+                </div>
+                <div class="stat-row">
+                    <span>Today's Likes</span>
+                    <span class="value">{{ stats.today_likes }}</span>
+                </div>
+                <div class="last-like">Last Like: {{ stats.last_like or 'Never' }}</div>
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="section-title">Activity Log</div>
         <div class="log-area">
             {% for log in logs %}
             <div class="log-entry">
                 <span class="log-time">[{{ log.time }}]</span>
                 <span class="log-{{ log.type }}">{{ log.message }}</span>
             </div>
+            {% else %}
+            <div class="log-entry"><span class="log-info">System ready...</span></div>
             {% endfor %}
         </div>
     </div>
@@ -565,6 +640,23 @@ DASHBOARD_HTML = '''
                 }
             });
         }
+
+        function deleteAllUsers() {
+            if (!confirm('Delete ALL users from auto-like?')) return;
+            
+            fetch('/delete-all-users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    location.reload();
+                } else {
+                    alert(data.message || 'Error deleting users');
+                }
+            });
+        }
     </script>
 </body>
 </html>
@@ -602,6 +694,9 @@ def dashboard():
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
     
+    # Check account status in background
+    threading.Thread(target=check_all_accounts).start()
+    
     logs = []
     
     return render_template_string(
@@ -612,10 +707,26 @@ def dashboard():
         total_likes=total_likes,
         targets_liked=targets_liked,
         users=auto_like_users,
+        user_stats=user_stats,
         accounts=account_list,
         next_reset=next_reset,
         logs=logs
     )
+
+def check_all_accounts():
+    """Background task to check account status"""
+    accounts = load_accounts("IND")
+    for acc in accounts[:10]:  # Check first 10 to avoid rate limit
+        if acc['uid'] not in account_status:
+            asyncio.run(check_and_update_status(acc))
+
+async def check_and_update_status(account):
+    token = await get_valid_token(account['uid'], account['password'])
+    if token:
+        account_status[account['uid']] = {'status': 'working', 'last_check': datetime.now().isoformat()}
+    else:
+        account_status[account['uid']] = {'status': 'timeout', 'last_check': datetime.now().isoformat()}
+    save_account_status()
 
 @app.route('/add-user', methods=['POST'])
 def add_user():
@@ -629,6 +740,7 @@ def add_user():
         return jsonify({'success': False, 'message': 'UID already in list'})
     
     auto_like_users.append(uid)
+    user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None}
     save_users()
     return jsonify({'success': True, 'message': f'Added {uid}'})
 
@@ -639,10 +751,19 @@ def delete_user():
     
     if uid in auto_like_users:
         auto_like_users.remove(uid)
+        if uid in user_stats:
+            del user_stats[uid]
         save_users()
         return jsonify({'success': True, 'message': f'Removed {uid}'})
     
     return jsonify({'success': False, 'message': 'UID not found'})
+
+@app.route('/delete-all-users', methods=['POST'])
+def delete_all_users():
+    auto_like_users.clear()
+    user_stats.clear()
+    save_users()
+    return jsonify({'success': True, 'message': 'All users deleted'})
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
@@ -667,6 +788,16 @@ def handle_requests():
     accounts = load_accounts(server_name)
     if not accounts:
         return jsonify({"error": f"No accounts for {server_name}"}), 500
+    
+    today_midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    count, last_reset = tracker[client_ip]
+
+    if last_reset < today_midnight:
+        tracker[client_ip] = [0, time.time()]
+        count = 0
+
+    if count >= KEY_LIMIT:
+        return jsonify({"error": "Daily limit reached", "remains": f"(0/{KEY_LIMIT})"}), 429
     
     check_token = None
     for account in accounts[:5]:
@@ -695,12 +826,9 @@ def handle_requests():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
-    if requested_likes and requested_likes > 0:
-        result = asyncio.run(send_likes_batch(uid, server_name, like_url, requested_likes))
-        success_count = result['success']
-    else:
-        result = asyncio.run(send_likes_batch(uid, server_name, like_url, 50))
-        success_count = result['success']
+    limit = requested_likes if requested_likes and requested_likes > 0 else 50
+    result = asyncio.run(send_likes_batch(uid, server_name, like_url, limit))
+    success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
     if after is None:
@@ -714,6 +842,10 @@ def handle_requests():
         
         like_given = after_like - before_like
         status = 1 if success_count > 0 else 2
+        
+        if success_count > 0:
+            tracker[client_ip][0] += 1
+            count += 1
 
         return jsonify({
             "LikesGivenByAPI": success_count,
@@ -723,8 +855,9 @@ def handle_requests():
             "PlayerNickname": player_name,
             "UID": player_id,
             "status": status,
+            "remains": f"({KEY_LIMIT - count}/{KEY_LIMIT})",
             "total_accounts": len(accounts),
-            "limit_requested": requested_likes if requested_likes else "50",
+            "limit_requested": limit,
             "skipped_24hr": result.get('skipped', 0),
             "accounts_used": result.get('accounts_used', 0),
             "failed": result.get('failed', 0),
@@ -764,7 +897,7 @@ def get_stats():
         "timeout_accounts": timeout,
         "total_accounts": len(account_status),
         "auto_like_users": len(auto_like_users),
-        "auto_like_targets": auto_like_users
+        "user_stats": user_stats
     })
 
 @app.route('/health', methods=['GET'])
