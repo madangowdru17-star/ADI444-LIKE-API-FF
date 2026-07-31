@@ -36,8 +36,8 @@ ACCOUNT_STATUS_FILE = "account_status.pkl"
 account_status = {}
 
 USERS_FILE = "users.pkl"
-auto_queue = []          # list of UIDs to auto-like daily
-user_stats = {}          # uid -> {total, today, last, username, current, auto_sent}
+auto_queue = []
+user_stats = {}
 
 RESET_HOUR = 4
 RESET_MINUTE = 0
@@ -45,7 +45,6 @@ RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1, 0.15, 0.2]
 
-# Extra: last auto-like run info
 last_auto_run = None
 auto_run_status = "Idle"
 auto_run_message = ""
@@ -431,7 +430,9 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# LOGIN PAGE
+# ============================================================
+#   LOGIN PAGE (no emojis)
+# ============================================================
 LOGIN_HTML = '''
 <!DOCTYPE html>
 <html>
@@ -471,7 +472,9 @@ LOGIN_HTML = '''
 </html>
 '''
 
-# DASHBOARD HTML - NEW USER-FRIENDLY MOBILE VERSION
+# ============================================================
+#   DASHBOARD – no emojis, modern, mobile-first
+# ============================================================
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -484,17 +487,13 @@ DASHBOARD_HTML = '''
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; padding-bottom: 30px; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
 
-        /* Header */
         .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 20px; border-radius: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 1.8em; }
+        .header h1 { font-size: 1.8em; letter-spacing: 0.5px; }
         .header .sub { opacity: 0.8; font-size: 0.85em; margin-top: 3px; }
         .header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; width: 100%; }
         .header-actions .btn { padding: 8px 14px; font-size: 0.85em; }
-        .badge-auto { background: #4caf5022; color: #4caf50; padding: 4px 12px; border-radius: 20px; border: 1px solid #4caf50; font-size: 0.85em; }
-        .badge-reset { color: #ffc107; font-weight: bold; }
 
-        /* Buttons */
-        .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+        .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .btn-refresh { background: #1a237e; color: #fff; }
         .btn-refresh:hover { background: #283593; }
         .btn-check { background: #ff6f00; color: #fff; }
@@ -515,13 +514,14 @@ DASHBOARD_HTML = '''
         .btn-auto-run:hover { background: #2e7d32; }
         .btn-auto-run:disabled { opacity: 0.5; cursor: not-allowed; }
 
-        /* Status Grid */
+        .badge-auto { background: #4caf5022; color: #4caf50; padding: 4px 12px; border-radius: 20px; border: 1px solid #4caf50; font-size: 0.85em; }
+        .badge-reset { color: #ffc107; font-weight: bold; }
+
         .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 20px; }
         .status-card { background: #141928; padding: 15px 10px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; }
         .status-card .num { font-size: 2em; font-weight: bold; }
         .status-card .lbl { color: #8899bb; font-size: 0.8em; margin-top: 4px; }
 
-        /* Panel */
         .panel { background: #141928; padding: 18px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 20px; }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 12px; }
         .input-group { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -529,7 +529,6 @@ DASHBOARD_HTML = '''
         .input-group input:focus { outline: none; border-color: #4caf50; }
         .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
 
-        /* Queue list */
         .user-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
         .user-item { background: #1a2240; padding: 8px 14px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid #2a3a5a; flex-wrap: wrap; font-size: 0.9em; }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
@@ -537,7 +536,6 @@ DASHBOARD_HTML = '''
         .user-item .stats span { color: #4caf50; font-weight: bold; }
         .user-item .del-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
 
-        /* Tables */
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
         th { background: #1e2a4a; padding: 10px 12px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
@@ -548,7 +546,6 @@ DASHBOARD_HTML = '''
         .badge-reset { background: #ffc10722; color: #ffc107; border: 1px solid #ffc107; }
         .badge-unknown { background: #8899bb22; color: #8899bb; border: 1px solid #8899bb; }
 
-        /* User stats cards */
         .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
         .user-stat-card { background: #1a2240; padding: 14px; border-radius: 10px; border: 1px solid #2a3a5a; }
         .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1em; }
@@ -557,8 +554,7 @@ DASHBOARD_HTML = '''
         .user-stat-card .row .val { color: #4caf50; font-weight: bold; }
         .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
 
-        /* Logs */
-        .log-area { background: #0a0e1a; padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; border: 1px solid #1e2a4a; margin-top: 12px; }
+        .log-area { background: #0a0e1a; padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.8em; border: 1px solid #1e2a4a; margin-top: 12px; }
         .log-entry { padding: 3px 0; border-bottom: 1px solid #141928; }
         .log-time { color: #42a5f5; }
         .log-success { color: #4caf50; }
@@ -663,7 +659,6 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Helper to format time
         function formatTime(iso) {
             if (!iso) return 'Never';
             try {
@@ -687,7 +682,6 @@ DASHBOARD_HTML = '''
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
 
-                    // Auto-queue list
                     var userHtml = '';
                     if (data.auto_queue && data.auto_queue.length > 0) {
                         data.auto_queue.forEach(function(uid) {
@@ -703,7 +697,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-user-list').innerHTML = userHtml;
 
-                    // Account table
                     var tableHtml = '';
                     if (data.accounts && data.accounts.length > 0) {
                         data.accounts.forEach(function(acc) {
@@ -721,7 +714,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('account-table').innerHTML = tableHtml;
 
-                    // Auto-queue stats
                     var statsHtml = '';
                     if (data.auto_queue && data.auto_queue.length > 0) {
                         data.auto_queue.forEach(function(uid) {
@@ -740,7 +732,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-queue-stats').innerHTML = statsHtml;
 
-                    // Logs
                     if (data.logs && data.logs.length > 0) {
                         var logHtml = '';
                         data.logs.forEach(function(log) {
@@ -768,7 +759,8 @@ DASHBOARD_HTML = '''
             if (!uid) { alert('Enter a UID'); return; }
             if (!confirm('Send ' + count + ' likes to ' + uid + '?')) return;
             
-            var btn = document.querySelector('.btn-like, .btn-like20, .btn-like220');
+            var btns = document.querySelectorAll('.btn-like, .btn-like20, .btn-like220');
+            var btn = btns[0];
             btn.textContent = '⏳';
             btn.disabled = true;
             
@@ -782,9 +774,9 @@ DASHBOARD_HTML = '''
                 btn.textContent = '✔';
                 btn.disabled = false;
                 if (data.success) {
-                    alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal: ' + data.total_likes);
+                    alert('✔ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal: ' + data.total_likes);
                 } else {
-                    alert('❌ Error: ' + (data.error || 'Unknown error'));
+                    alert('✘ Error: ' + (data.error || 'Unknown error'));
                 }
                 loadData();
             });
@@ -843,10 +835,10 @@ DASHBOARD_HTML = '''
             fetch('/force-auto-run', { method: 'POST' })
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
-                    btn.textContent = '&#9655; Run Auto';
+                    btn.textContent = '▶ Run Auto';
                     btn.disabled = false;
                     if (data.success) {
-                        alert('Auto-run triggered! Check logs for progress.');
+                        alert('Auto-run triggered! Check logs.');
                     } else {
                         alert('Error: ' + (data.error || 'Unknown'));
                     }
@@ -862,7 +854,9 @@ DASHBOARD_HTML = '''
 </html>
 '''
 
-# Routes
+# ============================================================
+#   ROUTES
+# ============================================================
 @app.route('/')
 def index():
     if session.get('logged_in'):
@@ -1016,7 +1010,6 @@ def clear_auto_queue():
 @app.route('/force-auto-run', methods=['POST'])
 def force_auto_run():
     global last_auto_run, auto_run_status, auto_run_message
-    # Run auto-like in background
     def run_auto():
         global last_auto_run, auto_run_status, auto_run_message
         try:
@@ -1036,7 +1029,6 @@ def force_auto_run():
     return jsonify({'success': True, 'message': 'Auto-run started'})
 
 async def auto_like_once():
-    # Single auto-like cycle (no infinite loop)
     log_message("Starting auto-like cycle", "info")
     accounts = load_accounts("IND")
     if not accounts:
@@ -1091,12 +1083,13 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# Load data
+# ============================================================
+#   STARTUP
+# ============================================================
 load_liked_data()
 load_account_status()
 load_users()
 
-# Start background threads
 reset_thread = threading.Thread(target=daily_reset_task, daemon=True)
 reset_thread.start()
 
@@ -1105,7 +1098,7 @@ auto_thread.start()
 
 threading.Thread(target=run_ultra_fast_check).start()
 
-log_message("System started - User-Friendly UI", "info")
+log_message("System started – Modern UI", "info")
 log_message(f"Accounts: {len(load_accounts('IND'))}", "info")
 log_message(f"Auto-queue: {len(auto_queue)}", "info")
 log_message("Auto-reset at 4:00 AM IST", "info")
