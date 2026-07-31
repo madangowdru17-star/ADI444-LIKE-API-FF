@@ -235,25 +235,13 @@ async def send_like(encrypted_uid, token, url):
     except:
         return 500
 
-async def send_like_fast(target_uid, encrypted_uid, account, url, semaphore, server_name):
-    async with semaphore:
-        try:
-            token = await get_valid_token(account['uid'], account['password'])
-            if not token:
-                return {'status': 500, 'uid': account['uid']}
-            
-            status = await send_like(encrypted_uid, token, url)
-            return {'status': status, 'uid': account['uid']}
-        except:
-            return {'status': 500, 'uid': account['uid']}
-
 async def send_likes_fast(target_uid, server_name, url, limit):
-    """OPTIMIZED: Batched concurrent sending to avoid memory issues"""
+    """FAST concurrent like sender with rate limit protection"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit, 'skipped_24hr': 0}
     
-    # Filter accounts (24hr rule)
+    # Filter accounts that already liked in 24 hours
     fresh_accounts = []
     skipped_24hr = 0
     
@@ -275,25 +263,27 @@ async def send_likes_fast(target_uid, server_name, url, limit):
         }
     
     random.shuffle(fresh_accounts)
+    
+    # Limit to requested amount
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
     
     # Prepare encrypted message once
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
     
-    # BATCH PROCESSING - Fixed the 64 limit issue!
-    BATCH_SIZE = 15  # Smaller batches
+    # Process in batches to avoid rate limiting
+    batch_size = 10  # Send 10 at a time
     successful = 0
     failed = 0
     
-    for i in range(0, len(accounts_to_use), BATCH_SIZE):
-        batch = accounts_to_use[i:i + BATCH_SIZE]
+    for i in range(0, len(accounts_to_use), batch_size):
+        batch = accounts_to_use[i:i+batch_size]
         
-        # Process batch with controlled concurrency
-        semaphore = asyncio.Semaphore(10)
+        # Send batch concurrently
+        semaphore = asyncio.Semaphore(10)  # 10 concurrent per batch
         tasks = []
         for acc in batch:
-            tasks.append(send_like_fast(target_uid, encrypted_uid, acc, url, semaphore, server_name))
+            tasks.append(send_like_fast_internal(target_uid, encrypted_uid, acc, url, semaphore, server_name))
         
         results = await asyncio.gather(*tasks, return_exceptions=True)
         
@@ -302,13 +292,15 @@ async def send_likes_fast(target_uid, server_name, url, limit):
                 if r.get('status') == 200:
                     successful += 1
                     mark_as_liked(target_uid, r['uid'])
+                    print(f"✅ Like {successful}/{limit} from {r['uid']}")
                 else:
                     failed += 1
             else:
                 failed += 1
         
-        # Small delay between batches
-        await asyncio.sleep(0.3)
+        # IMPORTANT: Wait 1 second between batches to avoid rate limiting
+        if i + batch_size < len(accounts_to_use):
+            await asyncio.sleep(1)
         
         # Stop if we reached the limit
         if successful >= limit:
@@ -322,6 +314,92 @@ async def send_likes_fast(target_uid, server_name, url, limit):
         'skipped_24hr': skipped_24hr,
         'accounts_used': len(accounts_to_use)
     }
+
+async def send_like_fast_internal(target_uid, encrypted_uid, account, url, semaphore, server_name):
+    """Fast individual like sender"""
+    async with semaphore:
+        try:
+            token = await get_valid_token(account['uid'], account['password'])
+            if not token:
+                return {'status': 500, 'uid': account['uid']}
+            
+            status = await send_like(encrypted_uid, token, url)
+            return {'status': status, 'uid': account['uid']}
+        except:
+            return {'status': 500, 'uid': account['uid']}
+
+async def send_likes_old_concurrent(target_uid, server_name, url):
+    """Legacy concurrent sender (kept for backward compatibility)"""
+    region = server_name
+    protobuf_message = create_protobuf_message(target_uid, region)
+    encrypted_uid = encrypt_message(protobuf_message)
+    
+    accounts = load_accounts(server_name)
+    if not accounts: 
+        return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0, 'skipped_24hr': 0}
+    
+    fresh_accounts = []
+    skipped_24hr = 0
+    
+    for acc in accounts:
+        if is_uid_liked_in_24hrs(target_uid, acc['uid']):
+            skipped_24hr += 1
+        else:
+            fresh_accounts.append(acc)
+    
+    print(f"📊 Total: {len(accounts)}, Fresh: {len(fresh_accounts)}, Skipped: {skipped_24hr}")
+    
+    if not fresh_accounts:
+        return {
+            'success': 0, 
+            'failed': 0, 
+            'total': len(accounts),
+            'already_liked': 0,
+            'fresh_used': 0,
+            'skipped_24hr': skipped_24hr
+        }
+    
+    random.shuffle(fresh_accounts)
+    
+    semaphore = asyncio.Semaphore(15)
+    tasks = []
+    for acc in fresh_accounts[:1000]:
+        tasks.append(process_account(target_uid, encrypted_uid, acc, url, semaphore, server_name))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    successful = 0
+    failed = 0
+    for r in results:
+        if isinstance(r, tuple):
+            status, uid = r
+            if status == 200:
+                successful += 1
+                mark_as_liked(target_uid, uid)
+            else:
+                failed += 1
+    
+    return {
+        'success': successful,
+        'failed': failed,
+        'total': len(accounts),
+        'already_liked': 0,
+        'fresh_used': len(fresh_accounts[:1000]),
+        'skipped_24hr': skipped_24hr
+    }
+
+async def process_account(target_uid, encrypted_uid, account, url, semaphore, server_name):
+    async with semaphore:
+        token = await get_valid_token(account['uid'], account['password'])
+        if not token:
+            return 500, account['uid']
+        
+        status = await send_like(encrypted_uid, token, url)
+        if status == 200:
+            mark_as_liked(target_uid, account['uid'])
+            return status, account['uid']
+        
+        return status, account['uid']
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -430,12 +508,12 @@ def handle_requests():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
+    # FAST MODE with batch processing
     if requested_likes and requested_likes > 0:
         result = asyncio.run(send_likes_fast(uid, server_name, like_url, requested_likes))
         success_count = result['success']
     else:
-        # Default: send 100 likes
-        result = asyncio.run(send_likes_fast(uid, server_name, like_url, 100))
+        result = asyncio.run(send_likes_old_concurrent(uid, server_name, like_url))
         success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -468,7 +546,7 @@ def handle_requests():
             "status": status,
             "remains": f"({remains}/{KEY_LIMIT})",
             "total_accounts": len(accounts),
-            "limit_requested": requested_likes if requested_likes else "100 (default)",
+            "limit_requested": requested_likes if requested_likes else "all",
             "skipped_24hr_rule": result.get('skipped_24hr', 0),
             "accounts_used": result.get('accounts_used', 0),
             "next_reset_at": next_reset.strftime('%Y-%m-%d %H:%M:%S IST')
@@ -514,8 +592,7 @@ def health_check():
         "token_cache": len(TOKEN_CACHE),
         "server": "Railway",
         "24hr_rule": "Active",
-        "reset_time": "3:00 AM IST Daily",
-        "batch_size": "15"
+        "reset_time": "3:00 AM IST Daily"
     })
 
 @app.route('/', methods=['GET'])
@@ -523,7 +600,7 @@ def home():
     return jsonify({
         "message": "✅ API is running!",
         "endpoints": {
-            "/like": "Send likes to a UID (BATCHED concurrent mode)",
+            "/like": "Send likes to a UID (FAST concurrent mode)",
             "/health": "Check API health",
             "/reset-cache": "Reset liked cache",
             "/stats": "View statistics"
@@ -531,7 +608,7 @@ def home():
         "usage": "/like?uid=TARGET_UID&server_name=IND&key=JMLB&likes=10",
         "24hr_rule": "Each account can only like a UID once every 24 hours",
         "reset_time": "3:00 AM IST Daily",
-        "speed": "🚀 BATCHED concurrent mode - 15 per batch",
+        "speed": "🚀 Batch mode: 10 likes per batch with 1s delay",
         "credit": "@minister_69"
     })
 
@@ -541,5 +618,5 @@ if __name__ == '__main__':
     print("🚀 Server started on Railway!")
     print("📁 Account files loaded")
     print("⏰ 24-hour rule active - resets daily at 3 AM IST")
-    print("⚡ BATCHED MODE: 15 likes per batch")
+    print("⚡ BATCH MODE: 10 likes/batch with 1s delay to avoid rate limiting!")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
