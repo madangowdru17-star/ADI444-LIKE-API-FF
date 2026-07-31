@@ -20,6 +20,7 @@ import jwt
 from datetime import timedelta
 import pickle
 import threading
+import hashlib
 
 TOKEN_CACHE = {}
 app = Flask(__name__)
@@ -36,13 +37,16 @@ account_status = {}
 
 USERS_FILE = "users.pkl"
 auto_like_users = []
-user_stats = {}  # uid -> {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
+user_stats = {}
 
 RESET_HOUR = 4
 RESET_MINUTE = 0
 RESET_SECOND = 0
 
-RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
+RATE_LIMIT_DELAYS = [0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
+
+ADMIN_USER = "admin"
+ADMIN_PASS = "admin123"
 
 def load_users():
     global auto_like_users, user_stats
@@ -209,7 +213,6 @@ def load_accounts(server_name):
         return []
 
 async def get_user_info(target_uid, server_name="IND"):
-    """Get user info like name, likes count"""
     try:
         accounts = load_accounts(server_name)
         if not accounts:
@@ -245,7 +248,7 @@ async def generate_jwt_token(uid, password):
         encoded_password = urllib.parse.quote(password)
         url = f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={encoded_password}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as response:
+            async with session.get(url, timeout=8) as response:
                 if response.status == 200:
                     data = await response.json()
                     if isinstance(data, dict):
@@ -290,7 +293,7 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retries=3):
+async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -300,77 +303,57 @@ async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retri
         'ReleaseVersion': "OB54"
     }
     
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=edata, headers=headers, timeout=5) as response:
-                    response_text = await response.text()
-                    
-                    if response.status == 200:
-                        if account_uid in account_status:
-                            account_status[account_uid]['status'] = 'working'
-                            account_status[account_uid]['last_check'] = datetime.now().isoformat()
-                            save_account_status()
-                        return True, None
-                    elif "LIMIT" in response_text:
-                        if account_uid in account_status:
-                            account_status[account_uid]['status'] = 'timeout'
-                            account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
-                            save_account_status()
-                        return False, "limit_reached"
-                    elif response.status == 429:
-                        await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS) * 2)
-                        continue
-                    else:
-                        await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS))
-                        continue
-        except:
-            continue
-    return False, "max_retries"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=edata, headers=headers, timeout=3) as response:
+                response_text = await response.text()
+                
+                if response.status == 200:
+                    if account_uid in account_status:
+                        account_status[account_uid]['status'] = 'working'
+                        account_status[account_uid]['last_check'] = datetime.now().isoformat()
+                        save_account_status()
+                    return True, None
+                elif "LIMIT" in response_text:
+                    if account_uid in account_status:
+                        account_status[account_uid]['status'] = 'timeout'
+                        account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
+                        save_account_status()
+                    return False, "limit"
+                else:
+                    return False, "failed"
+    except:
+        return False, "error"
 
-async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
-    async with semaphore:
-        try:
-            token = await get_valid_token(account['uid'], account['password'])
-            if not token:
-                return {'status': 'failed', 'uid': account['uid']}
-            
-            success, _ = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
-            
-            if success:
-                return {'status': 'success', 'uid': account['uid']}
-            else:
-                return {'status': 'failed', 'uid': account['uid']}
-        except:
-            return {'status': 'failed', 'uid': account['uid']}
-
-async def send_likes_batch(target_uid, server_name, url, limit):
+async def send_likes_ultra_fast(target_uid, server_name, url, limit):
+    """Ultra fast - sends all likes simultaneously"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0}
     
+    # Filter accounts
     fresh_accounts = []
-    skipped = 0
+    skipped_24hr = 0
     
     for acc in accounts:
         if is_uid_liked_in_24hrs(target_uid, acc['uid']):
-            skipped += 1
+            skipped_24hr += 1
         else:
             fresh_accounts.append(acc)
     
     if not fresh_accounts:
-        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped}
+        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped_24hr}
     
-    random.shuffle(fresh_accounts)
+    # Use all fresh accounts
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
     
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
     
-    semaphore = asyncio.Semaphore(30)
+    # Send ALL at once - ultra fast
     tasks = []
     for acc in accounts_to_use:
-        tasks.append(send_single_like(target_uid, encrypted_uid, acc, url, semaphore))
+        tasks.append(send_single_ultra_fast(target_uid, encrypted_uid, acc, url))
     
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
@@ -384,8 +367,8 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         else:
             failed += 1
     
+    # Update user stats
     if successful > 0:
-        # Get user info
         user_info = await get_user_info(target_uid, server_name)
         username = user_info.get('name', '') if user_info else ''
         current_likes = user_info.get('likes', 0) if user_info else 0
@@ -396,8 +379,55 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         'failed': failed,
         'total': len(accounts),
         'accounts_used': len(accounts_to_use),
-        'skipped': skipped
+        'skipped': skipped_24hr
     }
+
+async def send_single_ultra_fast(target_uid, encrypted_uid, account, url):
+    try:
+        token = await get_valid_token(account['uid'], account['password'])
+        if not token:
+            return {'status': 'failed', 'uid': account['uid']}
+        
+        success, _ = await send_like_ultra_fast(encrypted_uid, token, url, account['uid'])
+        
+        if success:
+            return {'status': 'success', 'uid': account['uid']}
+        else:
+            return {'status': 'failed', 'uid': account['uid']}
+    except:
+        return {'status': 'failed', 'uid': account['uid']}
+
+async def check_all_accounts_ultra_fast():
+    """Ultra fast account status check - all at once"""
+    accounts = load_accounts("IND")
+    if not accounts:
+        return
+    
+    tasks = []
+    for acc in accounts[:50]:  # Check first 50 at once
+        tasks.append(check_single_account(acc))
+    
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+async def check_single_account(account):
+    try:
+        token = await get_valid_token(account['uid'], account['password'])
+        if token:
+            account_status[account['uid']] = {
+                'status': 'working',
+                'last_check': datetime.now().isoformat()
+            }
+        else:
+            account_status[account['uid']] = {
+                'status': 'unknown',
+                'last_check': datetime.now().isoformat()
+            }
+        save_account_status()
+    except:
+        pass
+
+def run_ultra_fast_check():
+    asyncio.run(check_all_accounts_ultra_fast())
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -436,46 +466,7 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# Check account status in background
-async def check_all_accounts_status():
-    """Check all accounts status"""
-    accounts = load_accounts("IND")
-    for acc in accounts:
-        try:
-            token = await get_valid_token(acc['uid'], acc['password'])
-            if token:
-                # Test if account can like
-                protobuf_message = create_protobuf_message("3997461446", "IND")
-                encrypted_uid = encrypt_message(protobuf_message)
-                url = "https://client.ind.freefiremobile.com/LikeProfile"
-                success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
-                
-                if success:
-                    account_status[acc['uid']] = {
-                        'status': 'working',
-                        'last_check': datetime.now().isoformat()
-                    }
-                else:
-                    account_status[acc['uid']] = {
-                        'status': 'timeout',
-                        'last_check': datetime.now().isoformat(),
-                        'reset_time': get_next_reset_time().isoformat()
-                    }
-            else:
-                account_status[acc['uid']] = {
-                    'status': 'unknown',
-                    'last_check': datetime.now().isoformat()
-                }
-            save_account_status()
-            await asyncio.sleep(0.5)
-        except:
-            continue
-
-def run_status_check():
-    """Run status check in thread"""
-    asyncio.run(check_all_accounts_status())
-
-# HTML WEBSITE
+# HTML WEBSITE - PROFESSIONAL WITH ICONS
 WEBSITE_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -485,16 +476,223 @@ WEBSITE_HTML = '''
     <title>Auto-Like System</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 15px; margin-bottom: 25px; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #0a0e1a; 
+            color: #fff; 
+            min-height: 100vh;
+            overflow-x: hidden;
+        }
+        
+        /* LOADING SCREEN */
+        #loading-screen {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #0a0e1a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 99999;
+            transition: opacity 0.8s ease;
+        }
+        #loading-screen.hidden { opacity: 0; pointer-events: none; }
+        
+        .loader-ring {
+            width: 80px;
+            height: 80px;
+            border: 4px solid #1a2240;
+            border-top: 4px solid #ff1744;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        
+        .loading-text { 
+            margin-top: 25px; 
+            color: #8899bb; 
+            font-size: 1.1em;
+            letter-spacing: 2px;
+        }
+        .loading-text span { color: #ff1744; animation: blink 1s infinite; }
+        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+        
+        .loading-bar {
+            width: 200px;
+            height: 2px;
+            background: #1a2240;
+            margin-top: 15px;
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .loading-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #ff1744, #ff6b6b);
+            width: 0%;
+            animation: fill 5s ease forwards;
+        }
+        @keyframes fill { 0% { width: 0%; } 100% { width: 100%; } }
+        
+        /* DDOS PROTECTION */
+        #ddos-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: #0a0e1a;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            z-index: 99998;
+            transition: opacity 0.8s ease;
+        }
+        #ddos-overlay.hidden { opacity: 0; pointer-events: none; }
+        
+        .ddos-box {
+            background: #141928;
+            padding: 50px;
+            border-radius: 16px;
+            text-align: center;
+            border: 1px solid #1e2a4a;
+            max-width: 450px;
+            width: 90%;
+            position: relative;
+            overflow: hidden;
+        }
+        .ddos-box::before {
+            content: '';
+            position: absolute;
+            top: -2px; left: -2px; right: -2px; bottom: -2px;
+            background: linear-gradient(45deg, #ff1744, transparent, #ff1744, transparent);
+            background-size: 300% 300%;
+            animation: borderGlow 2s ease infinite;
+            border-radius: 16px;
+            z-index: -1;
+        }
+        @keyframes borderGlow {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .ddos-icon {
+            font-size: 3.5em;
+            color: #ff1744;
+            margin-bottom: 15px;
+        }
+        .ddos-box h2 { color: #ff1744; font-size: 1.8em; margin-bottom: 8px; }
+        .ddos-box p { color: #8899bb; margin-bottom: 25px; font-size: 0.95em; }
+        
+        .verify-btn {
+            background: linear-gradient(135deg, #ff1744, #d50000);
+            color: #fff;
+            border: none;
+            padding: 14px 45px;
+            border-radius: 30px;
+            font-size: 1.05em;
+            cursor: pointer;
+            transition: 0.3s;
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        .verify-btn:hover { transform: scale(1.05); box-shadow: 0 0 40px rgba(255, 23, 68, 0.3); }
+        .verify-btn:active { transform: scale(0.95); }
+        
+        /* ADMIN LOGIN */
+        .admin-section {
+            margin-top: 20px;
+            padding-top: 20px;
+            border-top: 1px solid #1a2240;
+        }
+        .admin-section input {
+            background: #0a0e1a;
+            border: 1px solid #1e2a4a;
+            color: #fff;
+            padding: 8px 15px;
+            border-radius: 6px;
+            margin: 5px;
+            width: 150px;
+        }
+        .admin-section input:focus { outline: none; border-color: #ff1744; }
+        .admin-btn {
+            background: #1a2240;
+            color: #fff;
+            border: none;
+            padding: 8px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+        }
+        .admin-btn:hover { background: #2a3a5a; }
+        .admin-error { color: #ff1744; font-size: 0.85em; margin-top: 10px; display: none; }
+        
+        /* MAIN DASHBOARD */
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; display: none; }
+        .container.visible { display: block; }
+        
+        .header {
+            background: linear-gradient(135deg, #1a237e, #283593);
+            padding: 25px;
+            border-radius: 15px;
+            margin-bottom: 25px;
+        }
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 15px;
+        }
         .header h1 { font-size: 2.2em; }
-        .header .sub { opacity: 0.8; margin-top: 5px; }
-        .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
-        .badge-auto { background: #4caf5022; color: #4caf50; padding: 6px 18px; border-radius: 20px; border: 1px solid #4caf50; }
+        .header .sub { opacity: 0.8; margin-top: 5px; font-size: 0.95em; }
+        
+        .badge-auto {
+            background: #4caf5022;
+            color: #4caf50;
+            padding: 6px 18px;
+            border-radius: 20px;
+            border: 1px solid #4caf50;
+            display: inline-block;
+            font-size: 0.9em;
+        }
         .badge-reset { color: #ffc107; font-weight: bold; }
-        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 25px; }
-        .status-card { background: #141928; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 0.9em;
+            transition: 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .btn-refresh { background: #1a237e; color: #fff; }
+        .btn-refresh:hover { background: #283593; }
+        .btn-check { background: #ff6f00; color: #fff; }
+        .btn-check:hover { background: #e65100; }
+        .btn-add { background: #4caf50; color: #fff; }
+        .btn-add:hover { background: #388e3c; }
+        .btn-del { background: #f44336; color: #fff; }
+        .btn-del:hover { background: #c62828; }
+        .btn-like { background: #ff6f00; color: #fff; }
+        .btn-like:hover { background: #e65100; }
+        
+        .status-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-bottom: 25px;
+        }
+        .status-card {
+            background: #141928;
+            padding: 20px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid #1e2a4a;
+            transition: 0.3s;
+        }
+        .status-card:hover { border-color: #4caf50; }
         .status-card .num { font-size: 2.5em; font-weight: bold; }
         .status-card .lbl { color: #8899bb; font-size: 0.85em; margin-top: 5px; }
         .green { color: #4caf50; }
@@ -503,88 +701,218 @@ WEBSITE_HTML = '''
         .blue { color: #42a5f5; }
         .purple { color: #ab47bc; }
         .cyan { color: #26c6da; }
-        .panel { background: #141928; padding: 20px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 25px; }
+        
+        .panel {
+            background: #141928;
+            padding: 20px;
+            border-radius: 12px;
+            border: 1px solid #1e2a4a;
+            margin-bottom: 25px;
+        }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
-        .input-group { display: flex; gap: 10px; flex-wrap: wrap; }
-        .input-group input { flex: 1; min-width: 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; }
-        .btn { padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: 0.3s; }
-        .btn-add { background: #4caf50; color: #fff; }
-        .btn-add:hover { background: #388e3c; }
-        .btn-del { background: #f44336; color: #fff; }
-        .btn-del:hover { background: #c62828; }
-        .btn-refresh { background: #1a237e; color: #fff; }
-        .btn-refresh:hover { background: #283593; }
-        .btn-like { background: #ff9800; color: #fff; }
-        .btn-like:hover { background: #e68900; }
-        .user-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-        .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; flex-wrap: wrap; }
+        
+        .input-group {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .input-group input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 15px;
+            border-radius: 8px;
+            border: 1px solid #1e2a4a;
+            background: #0a0e1a;
+            color: #fff;
+            font-size: 1em;
+        }
+        .input-group input:focus { outline: none; border-color: #4caf50; }
+        
+        .user-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .user-item {
+            background: #1a2240;
+            padding: 10px 15px;
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            border: 1px solid #2a3a5a;
+            flex-wrap: wrap;
+        }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
         .user-item .stats { font-size: 0.8em; color: #8899bb; }
         .user-item .stats span { color: #4caf50; font-weight: bold; }
-        .user-item .del-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
+        .user-item .del-btn {
+            background: none;
+            border: none;
+            color: #f44336;
+            cursor: pointer;
+            font-size: 1.2em;
+            padding: 0 5px;
+        }
+        
         .table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 15px; }
-        th { background: #1e2a4a; padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
-        td { padding: 12px 15px; border-bottom: 1px solid #1a2240; font-size: 0.9em; }
-        .badge { padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            background: #141928;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-top: 15px;
+        }
+        th {
+            background: #1e2a4a;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            color: #8899bb;
+            white-space: nowrap;
+        }
+        td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #1a2240;
+            font-size: 0.9em;
+        }
+        
+        .badge {
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            font-weight: bold;
+            display: inline-block;
+        }
         .badge-working { background: #4caf5022; color: #4caf50; border: 1px solid #4caf50; }
         .badge-timeout { background: #f4433622; color: #f44336; border: 1px solid #f44336; }
         .badge-reset { background: #ffc10722; color: #ffc107; border: 1px solid #ffc107; }
         .badge-unknown { background: #8899bb22; color: #8899bb; border: 1px solid #8899bb; }
-        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 15px; }
-        .user-stat-card { background: #1a2240; padding: 15px; border-radius: 10px; border: 1px solid #2a3a5a; }
+        
+        .user-stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .user-stat-card {
+            background: #1a2240;
+            padding: 15px;
+            border-radius: 10px;
+            border: 1px solid #2a3a5a;
+        }
         .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1.1em; }
         .user-stat-card .name { color: #fff; font-size: 0.9em; }
-        .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.85em; color: #8899bb; }
+        .user-stat-card .row {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 5px;
+            font-size: 0.85em;
+            color: #8899bb;
+        }
         .user-stat-card .row .val { color: #4caf50; font-weight: bold; }
         .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
-        .section-title { font-size: 1.3em; color: #fff; margin-top: 25px; margin-bottom: 15px; }
-        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; margin-left: 10px; animation: pulse 1s infinite; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        
+        .section-title {
+            font-size: 1.3em;
+            color: #fff;
+            margin-top: 25px;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .live-dot {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            background: #4caf50;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
+        
         .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
-        @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(2, 1fr); } }
-        @media (max-width: 480px) { .header h1 { font-size: 1.5em; } .status-grid { grid-template-columns: 1fr 1fr; } }
+        .icon { font-size: 1.2em; }
+        
+        @media (max-width: 768px) {
+            .status-grid { grid-template-columns: repeat(2, 1fr); }
+            .header h1 { font-size: 1.5em; }
+            .ddos-box { padding: 30px; }
+        }
+        @media (max-width: 480px) {
+            .status-grid { grid-template-columns: 1fr 1fr; }
+            .header-top { flex-direction: column; align-items: flex-start; }
+        }
     </style>
 </head>
 <body>
-<div class="container">
+
+<!-- LOADING SCREEN -->
+<div id="loading-screen">
+    <div class="loader-ring"></div>
+    <div class="loading-text">Loading <span>•••</span></div>
+    <div class="loading-bar"><div class="loading-bar-fill"></div></div>
+</div>
+
+<!-- DDOS PROTECTION + ADMIN -->
+<div id="ddos-overlay">
+    <div class="ddos-box">
+        <div class="ddos-icon">&#9888;</div>
+        <h2>Security Verification</h2>
+        <p>Click the button below to verify access to the dashboard.</p>
+        <button class="verify-btn" onclick="showAdmin()">&#10003; Click to Verify</button>
+        
+        <div class="admin-section">
+            <input type="text" id="admin-user" placeholder="Username" value="admin" />
+            <input type="password" id="admin-pass" placeholder="Password" value="admin123" />
+            <button class="admin-btn" onclick="verifyAdmin()">&#128274; Login</button>
+            <div class="admin-error" id="admin-error">Invalid credentials!</div>
+        </div>
+    </div>
+</div>
+
+<!-- MAIN DASHBOARD -->
+<div class="container" id="main-dashboard">
     <div class="header">
         <div class="header-top">
             <div>
-                <h1>Auto-Like Dashboard</h1>
-                <div class="sub">Real-time monitoring • Auto-reset daily at 4:00 AM IST</div>
+                <h1>&#9889; Auto-Like Dashboard</h1>
+                <div class="sub">Real-time monitoring &#8226; Auto-reset daily at 4:00 AM IST</div>
             </div>
-            <div>
-                <span class="badge-auto">▶ Auto-Like Running</span>
-                <span style="margin-left:15px;">Next Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                <button class="btn btn-refresh" onclick="location.reload()" style="margin-left:15px;">⟳ Refresh</button>
-                <button class="btn btn-refresh" onclick="checkStatus()" style="margin-left:10px;">🔍 Check Status</button>
+            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                <span class="badge-auto">&#9654; Auto-Like Running</span>
+                <span>Next Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                <button class="btn btn-refresh" onclick="location.reload()">&#8635; Refresh</button>
+                <button class="btn btn-check" onclick="checkStatus()">&#128270; Check</button>
             </div>
         </div>
     </div>
 
     <div class="status-grid">
-        <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">Total Accounts</div></div>
-        <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">Working Now</div></div>
-        <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">Limit Reached</div></div>
-        <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">Total Likes Sent</div></div>
-        <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">Targets Liked</div></div>
-        <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">Auto Users</div></div>
+        <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">&#128203; Total Accounts</div></div>
+        <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">&#9989; Working Now</div></div>
+        <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">&#9888; Limit Reached</div></div>
+        <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">&#10084; Total Likes</div></div>
+        <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">&#128101; Targets Liked</div></div>
+        <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">&#128100; Auto Users</div></div>
     </div>
 
     <div class="panel">
-        <h2>Manage Auto-Like Users</h2>
+        <h2>&#9889; Manage Auto-Like Users</h2>
         <div class="input-group">
             <input type="number" id="user-uid" placeholder="Enter Free Fire UID" />
-            <button class="btn btn-add" onclick="addUser()">+ Add User</button>
-            <button class="btn btn-del" onclick="deleteAllUsers()">✕ Delete All</button>
-            <button class="btn btn-like" onclick="sendInstantLike()">⚡ Send Like</button>
+            <button class="btn btn-add" onclick="addUser()">&#43; Add User</button>
+            <button class="btn btn-del" onclick="deleteAllUsers()">&#10007; Delete All</button>
+            <button class="btn btn-like" onclick="sendInstantLike()">&#9889; Send Like</button>
         </div>
         <div class="user-list" id="user-list"></div>
-        <div class="note">Users added here will receive auto-likes daily at 4:00 AM IST • Click "Send Like" for instant like</div>
+        <div class="note">&#9432; Users added here will receive auto-likes daily at 4:00 AM IST &#8226; Click "Send Like" for instant like</div>
     </div>
 
-    <div class="section-title">Account Status <span class="live-dot"></span></div>
+    <div class="section-title">&#128202; Account Status <span class="live-dot"></span></div>
     <div class="table-wrap">
         <table>
             <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
@@ -592,11 +920,37 @@ WEBSITE_HTML = '''
         </table>
     </div>
 
-    <div class="section-title">User Statistics</div>
+    <div class="section-title">&#128202; User Statistics</div>
     <div class="user-stats-grid" id="user-stats-grid"></div>
 </div>
 
 <script>
+    let isAdmin = false;
+
+    function showAdmin() {
+        document.querySelector('.admin-section').style.display = 'block';
+    }
+
+    function verifyAdmin() {
+        const user = document.getElementById('admin-user').value;
+        const pass = document.getElementById('admin-pass').value;
+        
+        if (user === 'admin' && pass === 'admin123') {
+            isAdmin = true;
+            document.getElementById('ddos-overlay').classList.add('hidden');
+            document.getElementById('main-dashboard').classList.add('visible');
+            document.getElementById('loading-screen').classList.add('hidden');
+            loadData();
+            setInterval(loadData, 3000);
+            setInterval(checkStatus, 10000);
+        } else {
+            document.getElementById('admin-error').style.display = 'block';
+            setTimeout(() => {
+                document.getElementById('admin-error').style.display = 'none';
+            }, 3000);
+        }
+    }
+
     function loadData() {
         fetch('/api/dashboard-data')
             .then(res => res.json())
@@ -610,40 +964,54 @@ WEBSITE_HTML = '''
                 document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
 
                 let userHtml = '';
-                data.users.forEach(user => {
-                    const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
-                    userHtml += `<div class="user-item">
-                        <span class="uid">${user}</span>
-                        <span class="stats">Total: <span>${s.total_likes||0}</span> | Today: <span>${s.today_likes||0}</span></span>
-                        <button class="del-btn" onclick="deleteUser('${user}')">✕</button>
-                    </div>`;
-                });
-                document.getElementById('user-list').innerHTML = userHtml || '<div class="note">No users added yet</div>';
+                if (data.users && data.users.length > 0) {
+                    data.users.forEach(user => {
+                        const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
+                        userHtml += `<div class="user-item">
+                            <span class="uid">${user}</span>
+                            <span class="stats">Total: <span>${s.total_likes||0}</span> | Today: <span>${s.today_likes||0}</span></span>
+                            <button class="del-btn" onclick="deleteUser('${user}')">&#10005;</button>
+                        </div>`;
+                    });
+                } else {
+                    userHtml = '<div class="note">No users added yet</div>';
+                }
+                document.getElementById('user-list').innerHTML = userHtml;
 
                 let tableHtml = '';
-                data.accounts.forEach(acc => {
-                    const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
-                    tableHtml += `<tr><td><strong>${acc.uid}</strong></td>
-                        <td><span class="badge badge-${cls}">${acc.status}</span></td>
-                        <td>${acc.last_check || 'Never'}</td>
-                        <td>${acc.reset_time || 'N/A'}</td>
-                        <td>${acc.last_error || 'None'}</td></tr>`;
-                });
-                document.getElementById('account-table').innerHTML = tableHtml || '<tr><td colspan="5">No accounts loaded</td></tr>';
+                if (data.accounts && data.accounts.length > 0) {
+                    data.accounts.forEach(acc => {
+                        const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
+                        tableHtml += `<tr>
+                            <td><strong>${acc.uid}</strong></td>
+                            <td><span class="badge badge-${cls}">${acc.status}</span></td>
+                            <td>${acc.last_check || 'Never'}</td>
+                            <td>${acc.reset_time || 'N/A'}</td>
+                            <td>${acc.last_error || 'None'}</td>
+                        </tr>`;
+                    });
+                } else {
+                    tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
+                }
+                document.getElementById('account-table').innerHTML = tableHtml;
 
                 let statsHtml = '';
-                Object.keys(data.user_stats).forEach(uid => {
-                    const s = data.user_stats[uid];
-                    statsHtml += `<div class="user-stat-card">
-                        <div class="uid">UID: ${uid}</div>
-                        <div class="name">Name: ${s.username || 'Unknown'}</div>
-                        <div class="row"><span>Total Likes</span><span class="val">${s.total_likes||0}</span></div>
-                        <div class="row"><span>Today's Likes</span><span class="val">${s.today_likes||0}</span></div>
-                        <div class="row"><span>Current Likes</span><span class="val">${s.current_likes||0}</span></div>
-                        <div class="last">Last: ${s.last_like || 'Never'}</div>
-                    </div>`;
-                });
-                document.getElementById('user-stats-grid').innerHTML = statsHtml || '<div class="note">No stats yet</div>';
+                if (data.user_stats && Object.keys(data.user_stats).length > 0) {
+                    Object.keys(data.user_stats).forEach(uid => {
+                        const s = data.user_stats[uid];
+                        statsHtml += `<div class="user-stat-card">
+                            <div class="uid">UID: ${uid}</div>
+                            <div class="name">Name: ${s.username || 'Unknown'}</div>
+                            <div class="row"><span>Total Likes</span><span class="val">${s.total_likes||0}</span></div>
+                            <div class="row"><span>Today's Likes</span><span class="val">${s.today_likes||0}</span></div>
+                            <div class="row"><span>Current Likes</span><span class="val">${s.current_likes||0}</span></div>
+                            <div class="last">Last: ${s.last_like || 'Never'}</div>
+                        </div>`;
+                    });
+                } else {
+                    statsHtml = '<div class="note">No stats yet</div>';
+                }
+                document.getElementById('user-stats-grid').innerHTML = statsHtml;
             });
     }
 
@@ -651,8 +1019,8 @@ WEBSITE_HTML = '''
         fetch('/api/check-status')
             .then(res => res.json())
             .then(data => {
-                alert(data.message);
-                setTimeout(loadData, 2000);
+                console.log('Status check started');
+                setTimeout(loadData, 3000);
             });
     }
 
@@ -683,13 +1051,19 @@ WEBSITE_HTML = '''
         if (!uid) { alert('Enter a UID to like'); return; }
         if (!confirm(`Send likes to ${uid}?`)) return;
         
+        const btn = document.querySelector('.btn-like');
+        btn.textContent = '⏳ Sending...';
+        btn.disabled = true;
+        
         fetch('/like-instant', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', likes: 10 })
+            body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', likes: 492 })
         })
         .then(res => res.json())
         .then(data => {
+            btn.textContent = '⚡ Send Like';
+            btn.disabled = false;
             if (data.success) {
                 alert(`✅ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal Likes: ${data.total_likes}`);
                 loadData();
@@ -699,8 +1073,8 @@ WEBSITE_HTML = '''
         });
     }
 
-    setInterval(loadData, 3000);
-    window.onload = loadData;
+    // Auto-check status every 10 seconds
+    setInterval(checkStatus, 10000);
 </script>
 </body>
 </html>
@@ -757,8 +1131,8 @@ def dashboard_data():
 
 @app.route('/api/check-status')
 def check_status_api():
-    threading.Thread(target=run_status_check).start()
-    return jsonify({'message': 'Status check started! Refresh in 10 seconds'})
+    threading.Thread(target=run_ultra_fast_check).start()
+    return jsonify({'message': 'Status check started'})
 
 @app.route('/add-user', methods=['POST'])
 def add_user():
@@ -803,7 +1177,7 @@ def like_instant():
     uid = data.get('uid', '').strip()
     server_name = data.get('server_name', 'IND').upper()
     key = data.get('key', 'JMLB')
-    likes = int(data.get('likes', 10))
+    likes = int(data.get('likes', 492))
     
     if key != "JMLB":
         return jsonify({'success': False, 'error': 'Invalid key'})
@@ -813,9 +1187,8 @@ def like_instant():
     
     # Get user info before
     user_info_before = asyncio.run(get_user_info(uid, server_name))
-    before_likes = user_info_before.get('likes', 0) if user_info_before else 0
     
-    # Send likes
+    # Send likes ultra fast
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -823,7 +1196,7 @@ def like_instant():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
     
-    result = asyncio.run(send_likes_batch(uid, server_name, like_url, likes))
+    result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, likes))
     
     # Get user info after
     user_info_after = asyncio.run(get_user_info(uid, server_name))
@@ -841,7 +1214,8 @@ def like_instant():
         'username': user_info_after.get('name', 'Unknown') if user_info_after else 'Unknown',
         'total_likes': user_info_after.get('likes', 0) if user_info_after else 0,
         'skipped': result.get('skipped', 0),
-        'failed': result.get('failed', 0)
+        'failed': result.get('failed', 0),
+        'accounts_used': result.get('accounts_used', 0)
     })
 
 @app.route('/like', methods=['GET'])
@@ -906,7 +1280,7 @@ def handle_requests():
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
     limit = requested_likes if requested_likes and requested_likes > 0 else 50
-    result = asyncio.run(send_likes_batch(uid, server_name, like_url, limit))
+    result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, limit))
     success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -980,24 +1354,18 @@ async def auto_like_daily():
             
             print(f"Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
             
-            accounts = load_accounts("IND")
-            if not accounts:
-                print("No accounts available")
-                await asyncio.sleep(60)
-                continue
-            
             for user_uid in auto_like_users:
                 print(f"Processing user: {user_uid}")
                 
-                result = await send_likes_batch(
+                result = await send_likes_ultra_fast(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
-                    50
+                    492
                 )
                 
                 print(f"Sent {result['success']} likes to {user_uid}")
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)
             
             print(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
             
@@ -1020,13 +1388,14 @@ reset_thread.start()
 auto_thread = threading.Thread(target=start_auto_like, daemon=True)
 auto_thread.start()
 
-# Initial status check
-threading.Thread(target=run_status_check).start()
+# Initial ultra-fast check
+threading.Thread(target=run_ultra_fast_check).start()
 
-print("Auto-Like System Started!")
+print("Ultra-Fast Auto-Like System Started!")
 print(f"Users loaded: {len(auto_like_users)}")
 print(f"Accounts loaded: {len(load_accounts('IND'))}")
 print("Auto-reset at 4:00 AM IST")
+print("Ultra-fast checking enabled - 50 accounts at once!")
 
 if __name__ == '__main__':
     import os
