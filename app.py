@@ -35,9 +35,12 @@ like_timestamps = {}
 ACCOUNT_STATUS_FILE = "account_status.pkl"
 account_status = {}
 
-USERS_FILE = "users.pkl"
-auto_like_users = []
-user_stats = {}
+# Auto-like queue
+AUTO_QUEUE_FILE = "auto_queue.pkl"
+auto_queue = []  # list of UIDs to auto-like daily
+
+# Stats per UID
+user_stats = {}  # uid -> {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0, 'auto_likes_sent': 0}
 
 RESET_HOUR = 4
 RESET_MINUTE = 0
@@ -45,32 +48,94 @@ RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1, 0.15, 0.2]
 
+def load_auto_queue():
+    global auto_queue
+    try:
+        if os.path.exists(AUTO_QUEUE_FILE):
+            with open(AUTO_QUEUE_FILE, 'rb') as f:
+                auto_queue = pickle.load(f)
+                print(f"Loaded auto queue: {len(auto_queue)} UIDs")
+        else:
+            auto_queue = []
+            save_auto_queue()
+    except Exception as e:
+        print(f"Error loading auto queue: {e}")
+        auto_queue = []
+
+def save_auto_queue():
+    try:
+        with open(AUTO_QUEUE_FILE, 'wb') as f:
+            pickle.dump(auto_queue, f)
+        print(f"Saved auto queue: {len(auto_queue)} UIDs")
+    except Exception as e:
+        print(f"Error saving auto queue: {e}")
+
 def load_users():
-    global auto_like_users, user_stats
+    global auto_queue, user_stats
+    # Merge: auto_queue is the list of UIDs to auto-like
+    # user_stats holds per-UID data
     try:
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'rb') as f:
                 data = pickle.load(f)
                 if isinstance(data, dict):
-                    auto_like_users = data.get('users', [])
-                    user_stats = data.get('stats', {})
+                    # For backward compatibility, we might have 'users' and 'stats'
+                    if 'users' in data:
+                        auto_queue = data.get('users', [])
+                    if 'stats' in data:
+                        user_stats = data.get('stats', {})
                 else:
-                    auto_like_users = data
+                    auto_queue = data
                     user_stats = {}
-                print(f"Loaded {len(auto_like_users)} users")
+                print(f"Loaded {len(auto_queue)} users")
         else:
-            auto_like_users = []
+            auto_queue = []
             user_stats = {}
             save_users()
     except Exception as e:
         print(f"Error loading users: {e}")
-        auto_like_users = []
+        auto_queue = []
         user_stats = {}
 
 def save_users():
     try:
         data = {
-            'users': auto_like_users,
+            'users': auto_queue,
+            'stats': user_stats
+        }
+        with open(USERS_FILE, 'wb') as f:
+            pickle.dump(data, f)
+    except Exception as e:
+        print(f"Error saving users: {e}")
+
+# We'll use load_users/save_users to manage both auto_queue and user_stats
+# Override previous functions
+def load_users():
+    global auto_queue, user_stats
+    try:
+        if os.path.exists(USERS_FILE):
+            with open(USERS_FILE, 'rb') as f:
+                data = pickle.load(f)
+                if isinstance(data, dict):
+                    auto_queue = data.get('users', [])
+                    user_stats = data.get('stats', {})
+                else:
+                    auto_queue = data
+                    user_stats = {}
+                print(f"Loaded auto queue: {len(auto_queue)} UIDs")
+        else:
+            auto_queue = []
+            user_stats = {}
+            save_users()
+    except Exception as e:
+        print(f"Error loading users: {e}")
+        auto_queue = []
+        user_stats = {}
+
+def save_users():
+    try:
+        data = {
+            'users': auto_queue,
             'stats': user_stats
         }
         with open(USERS_FILE, 'wb') as f:
@@ -137,7 +202,7 @@ def mark_as_liked(target_uid, account_uid):
 
 def update_user_stats(target_uid, likes_given, username="", current_likes=0):
     if target_uid not in user_stats:
-        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
+        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0, 'auto_likes_sent': 0}
     user_stats[target_uid]['total_likes'] += likes_given
     user_stats[target_uid]['today_likes'] += likes_given
     user_stats[target_uid]['last_like'] = datetime.now().isoformat()
@@ -177,6 +242,7 @@ def reset_all_data():
         account_status[uid]['reset_time'] = datetime.now().isoformat()
     for uid in user_stats:
         user_stats[uid]['today_likes'] = 0
+        user_stats[uid]['auto_likes_sent'] = 0
     save_liked_data()
     save_account_status()
     save_users()
@@ -323,6 +389,7 @@ async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
         return False, "error"
 
 async def send_likes_ultra_fast(target_uid, server_name, url, limit):
+    """Send likes using all fresh accounts, returns success count"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0}
@@ -360,6 +427,7 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
         else:
             failed += 1
     
+    # Update user stats
     if successful > 0:
         user_info = await get_user_info(target_uid, server_name)
         username = user_info.get('name', '') if user_info else ''
@@ -524,6 +592,10 @@ DASHBOARD_HTML = '''
         .btn-del:hover { background: #c62828; }
         .btn-like { background: #ff6f00; color: #fff; }
         .btn-like:hover { background: #e65100; }
+        .btn-like20 { background: #0d47a1; color: #fff; }
+        .btn-like20:hover { background: #1565c0; }
+        .btn-like220 { background: #bf360c; color: #fff; }
+        .btn-like220:hover { background: #d84315; }
         .btn-logout { background: #1a2240; color: #fff; }
         .btn-logout:hover { background: #2a3a5a; }
         .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 25px; }
@@ -539,9 +611,10 @@ DASHBOARD_HTML = '''
         .cyan { color: #26c6da; }
         .panel { background: #141928; padding: 20px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 25px; }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
-        .input-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .input-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
         .input-group input { flex: 1; min-width: 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; }
         .input-group input:focus { outline: none; border-color: #4caf50; }
+        .input-group .btn-group { display: flex; gap: 5px; flex-wrap: wrap; }
         .user-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
         .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; flex-wrap: wrap; }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
@@ -568,6 +641,12 @@ DASHBOARD_HTML = '''
         .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
         .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
+        .log-area { background: #0a0e1a; padding: 15px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85em; border: 1px solid #1e2a4a; margin-top: 15px; }
+        .log-entry { padding: 4px 0; border-bottom: 1px solid #141928; }
+        .log-time { color: #42a5f5; }
+        .log-success { color: #4caf50; }
+        .log-error { color: #f44336; }
+        .log-info { color: #ffc107; }
         @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(2, 1fr); } .header h1 { font-size: 1.5em; } }
         @media (max-width: 480px) { .status-grid { grid-template-columns: 1fr 1fr; } .header-top { flex-direction: column; align-items: flex-start; } }
     </style>
@@ -600,15 +679,21 @@ DASHBOARD_HTML = '''
         </div>
 
         <div class="panel">
-            <h2>&#9889; Manage Auto-Like Users</h2>
+            <h2>&#9889; Send Likes</h2>
             <div class="input-group">
-                <input type="number" id="user-uid" placeholder="Enter Free Fire UID" />
-                <button class="btn btn-add" onclick="addUser()">&#43; Add User</button>
-                <button class="btn btn-del" onclick="deleteAllUsers()">&#10007; Delete All</button>
-                <button class="btn btn-like" onclick="sendInstantLike()">&#9889; Send Like</button>
+                <input type="number" id="target-uid" placeholder="Enter Free Fire UID" />
+                <div class="btn-group">
+                    <button class="btn btn-like20" onclick="sendLikes(20)">&#43; 20 Likes</button>
+                    <button class="btn btn-like220" onclick="sendLikes(220)">&#43; 220 Likes</button>
+                    <button class="btn btn-like" onclick="sendLikes(492)">&#9889; All Likes</button>
+                </div>
             </div>
-            <div class="user-list" id="user-list"></div>
-            <div class="note">&#9432; Users added here will receive auto-likes daily at 4:00 AM IST &#8226; Click "Send Like" for instant like</div>
+            <div style="margin-top:10px;">
+                <button class="btn btn-add" onclick="addAutoUser()">&#43; Add to Auto-Queue</button>
+                <button class="btn btn-del" onclick="deleteAllAuto()">&#10007; Clear Queue</button>
+            </div>
+            <div class="user-list" id="auto-user-list"></div>
+            <div class="note">&#9432; Enter UID and click any button. Successful likes automatically add UID to daily auto-queue (4 AM IST).</div>
         </div>
 
         <div class="section-title">&#128202; Account Status <span class="live-dot"></span></div>
@@ -619,11 +704,17 @@ DASHBOARD_HTML = '''
             </table>
         </div>
 
-        <div class="section-title">&#128202; User Statistics</div>
-        <div class="user-stats-grid" id="user-stats-grid"></div>
+        <div class="section-title">&#128202; Auto-Queue Users</div>
+        <div class="user-stats-grid" id="auto-queue-stats"></div>
+
+        <div class="section-title">&#128202; Activity Log</div>
+        <div class="log-area" id="log-area">
+            <div class="log-entry"><span class="log-info">System ready.</span></div>
+        </div>
     </div>
 
     <script>
+        // Load initial data
         function loadData() {
             fetch('/api/dashboard-data')
                 .then(function(res) { return res.json(); })
@@ -636,21 +727,23 @@ DASHBOARD_HTML = '''
                     document.getElementById('auto-users').textContent = data.auto_users || 0;
                     document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
 
+                    // Auto-queue user list
                     var userHtml = '';
-                    if (data.users && data.users.length > 0) {
-                        data.users.forEach(function(user) {
-                            var s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
+                    if (data.auto_queue && data.auto_queue.length > 0) {
+                        data.auto_queue.forEach(function(uid) {
+                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, auto_likes_sent: 0 };
                             userHtml += '<div class="user-item">' +
-                                '<span class="uid">' + user + '</span>' +
-                                '<span class="stats">Total: <span>' + (s.total_likes||0) + '</span> | Today: <span>' + (s.today_likes||0) + '</span></span>' +
-                                '<button class="del-btn" onclick="deleteUser(\'' + user + '\')">&#10005;</button>' +
+                                '<span class="uid">' + uid + '</span>' +
+                                '<span class="stats">Total: <span>' + (s.total_likes||0) + '</span> | Today: <span>' + (s.today_likes||0) + '</span> | Auto: <span>' + (s.auto_likes_sent||0) + '</span></span>' +
+                                '<button class="del-btn" onclick="removeAutoUser(\'' + uid + '\')">&#10005;</button>' +
                             '</div>';
                         });
                     } else {
-                        userHtml = '<div class="note">No users added yet</div>';
+                        userHtml = '<div class="note">No users in auto-queue</div>';
                     }
-                    document.getElementById('user-list').innerHTML = userHtml;
+                    document.getElementById('auto-user-list').innerHTML = userHtml;
 
+                    // Account table
                     var tableHtml = '';
                     if (data.accounts && data.accounts.length > 0) {
                         data.accounts.forEach(function(acc) {
@@ -668,24 +761,36 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('account-table').innerHTML = tableHtml;
 
+                    // Auto-queue stats
                     var statsHtml = '';
-                    if (data.user_stats && Object.keys(data.user_stats).length > 0) {
-                        var keys = Object.keys(data.user_stats);
-                        keys.forEach(function(uid) {
-                            var s = data.user_stats[uid];
+                    if (data.auto_queue && data.auto_queue.length > 0) {
+                        data.auto_queue.forEach(function(uid) {
+                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, last_like: null, username: '', current_likes: 0, auto_likes_sent: 0 };
                             statsHtml += '<div class="user-stat-card">' +
                                 '<div class="uid">UID: ' + uid + '</div>' +
                                 '<div class="name">Name: ' + (s.username || 'Unknown') + '</div>' +
                                 '<div class="row"><span>Total Likes</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
                                 '<div class="row"><span>Today\'s Likes</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
-                                '<div class="row"><span>Current Likes</span><span class="val">' + (s.current_likes||0) + '</span></div>' +
+                                '<div class="row"><span>Auto Likes Sent</span><span class="val">' + (s.auto_likes_sent||0) + '</span></div>' +
                                 '<div class="last">Last: ' + (s.last_like || 'Never') + '</div>' +
                             '</div>';
                         });
                     } else {
-                        statsHtml = '<div class="note">No stats yet</div>';
+                        statsHtml = '<div class="note">No auto-queue users</div>';
                     }
-                    document.getElementById('user-stats-grid').innerHTML = statsHtml;
+                    document.getElementById('auto-queue-stats').innerHTML = statsHtml;
+
+                    // Logs
+                    if (data.logs && data.logs.length > 0) {
+                        var logHtml = '';
+                        data.logs.forEach(function(log) {
+                            logHtml += '<div class="log-entry">' +
+                                '<span class="log-time">[' + log.time + ']</span> ' +
+                                '<span class="log-' + log.type + '">' + log.message + '</span>' +
+                            '</div>';
+                        });
+                        document.getElementById('log-area').innerHTML = logHtml;
+                    }
                 });
         }
 
@@ -698,10 +803,37 @@ DASHBOARD_HTML = '''
                 });
         }
 
-        function addUser() {
-            var uid = document.getElementById('user-uid').value.trim();
+        function sendLikes(count) {
+            var uid = document.getElementById('target-uid').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
-            fetch('/add-user', {
+            if (!confirm('Send ' + count + ' likes to ' + uid + '?')) return;
+            
+            var btn = document.querySelector('.btn-like, .btn-like20, .btn-like220');
+            btn.textContent = '⏳ Sending...';
+            btn.disabled = true;
+            
+            fetch('/send-likes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, server_name: 'IND', key: 'JMLB', count: count })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                btn.textContent = '✔ Done';
+                btn.disabled = false;
+                if (data.success) {
+                    alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal Likes: ' + data.total_likes);
+                } else {
+                    alert('❌ Error: ' + (data.error || 'Unknown error'));
+                }
+                loadData();
+            });
+        }
+
+        function addAutoUser() {
+            var uid = document.getElementById('target-uid').value.trim();
+            if (!uid) { alert('Enter a UID'); return; }
+            fetch('/add-auto-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uid: uid })
@@ -709,17 +841,17 @@ DASHBOARD_HTML = '''
             .then(function(res) { return res.json(); })
             .then(function(data) {
                 if (data.success) {
+                    alert('Added to auto-queue: ' + uid);
                     loadData();
-                    document.getElementById('user-uid').value = '';
                 } else {
                     alert(data.message);
                 }
             });
         }
 
-        function deleteUser(uid) {
-            if (!confirm('Remove this user?')) return;
-            fetch('/delete-user', {
+        function removeAutoUser(uid) {
+            if (!confirm('Remove ' + uid + ' from auto-queue?')) return;
+            fetch('/remove-auto-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ uid: uid })
@@ -731,9 +863,9 @@ DASHBOARD_HTML = '''
             });
         }
 
-        function deleteAllUsers() {
-            if (!confirm('Delete ALL users?')) return;
-            fetch('/delete-all-users', {
+        function deleteAllAuto() {
+            if (!confirm('Clear entire auto-queue?')) return;
+            fetch('/clear-auto-queue', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' }
             })
@@ -744,41 +876,15 @@ DASHBOARD_HTML = '''
             });
         }
 
-        function sendInstantLike() {
-            var uid = document.getElementById('user-uid').value.trim();
-            if (!uid) { alert('Enter a UID to like'); return; }
-            if (!confirm('Send likes to ' + uid + '?')) return;
-            
-            var btn = document.querySelector('.btn-like');
-            btn.textContent = '⏳ Sending...';
-            btn.disabled = true;
-            
-            fetch('/like-instant', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid: uid, server_name: 'IND', key: 'JMLB', likes: 492 })
-            })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                btn.textContent = '⚡ Send Like';
-                btn.disabled = false;
-                if (data.success) {
-                    alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal Likes: ' + data.total_likes);
-                    loadData();
-                } else {
-                    alert('❌ Error: ' + (data.error || 'Unknown error'));
-                }
-            });
-        }
-
         loadData();
-        setInterval(loadData, 2000);
-        setInterval(checkStatus, 5000);
+        setInterval(loadData, 3000);
+        setInterval(checkStatus, 10000);
     </script>
 </body>
 </html>
 '''
 
+# Routes
 @app.route('/')
 def index():
     if session.get('logged_in'):
@@ -835,17 +941,30 @@ def dashboard_data():
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
     
+    # Get logs (last 50)
+    logs = []
+    try:
+        with open('logs.txt', 'r') as f:
+            lines = f.readlines()[-50:]
+            for line in lines:
+                parts = line.strip().split('|')
+                if len(parts) == 3:
+                    logs.append({'time': parts[0], 'type': parts[1], 'message': parts[2]})
+    except:
+        pass
+    
     return jsonify({
         'total_accounts': total,
         'working_count': working_count,
         'timeout_count': timeout_count,
         'total_likes': total_likes,
         'targets_liked': targets_liked,
-        'auto_users': len(auto_like_users),
+        'auto_users': len(auto_queue),
         'next_reset': next_reset,
-        'users': auto_like_users,
+        'auto_queue': auto_queue,
         'user_stats': user_stats,
-        'accounts': account_list
+        'accounts': account_list,
+        'logs': logs
     })
 
 @app.route('/api/check-status')
@@ -853,50 +972,13 @@ def check_status_api():
     threading.Thread(target=run_ultra_fast_check).start()
     return jsonify({'message': 'Status check started'})
 
-@app.route('/add-user', methods=['POST'])
-def add_user():
-    data = request.get_json()
-    uid = data.get('uid', '').strip()
-    
-    if not uid:
-        return jsonify({'success': False, 'message': 'UID required'})
-    
-    if uid in auto_like_users:
-        return jsonify({'success': False, 'message': 'UID already in list'})
-    
-    auto_like_users.append(uid)
-    user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
-    save_users()
-    return jsonify({'success': True, 'message': f'Added {uid}'})
-
-@app.route('/delete-user', methods=['POST'])
-def delete_user():
-    data = request.get_json()
-    uid = data.get('uid', '').strip()
-    
-    if uid in auto_like_users:
-        auto_like_users.remove(uid)
-        if uid in user_stats:
-            del user_stats[uid]
-        save_users()
-        return jsonify({'success': True, 'message': f'Removed {uid}'})
-    
-    return jsonify({'success': False, 'message': 'UID not found'})
-
-@app.route('/delete-all-users', methods=['POST'])
-def delete_all_users():
-    auto_like_users.clear()
-    user_stats.clear()
-    save_users()
-    return jsonify({'success': True, 'message': 'All users deleted'})
-
-@app.route('/like-instant', methods=['POST'])
-def like_instant():
+@app.route('/send-likes', methods=['POST'])
+def send_likes_manual():
     data = request.get_json()
     uid = data.get('uid', '').strip()
     server_name = data.get('server_name', 'IND').upper()
     key = data.get('key', 'JMLB')
-    likes = int(data.get('likes', 492))
+    count = int(data.get('count', 20))
     
     if key != "JMLB":
         return jsonify({'success': False, 'error': 'Invalid key'})
@@ -911,10 +993,17 @@ def like_instant():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
     
-    result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, likes))
+    # Send likes
+    result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, count))
     
+    # Add to auto-queue if not already
+    if result['success'] > 0 and uid not in auto_queue:
+        auto_queue.append(uid)
+        save_users()
+        log_message(f"Added {uid} to auto-queue (manual like success)", "success")
+    
+    # Get user info
     user_info = asyncio.run(get_user_info(uid, server_name))
-    
     if user_info:
         username = user_info.get('name', 'Unknown')
         current_likes = user_info.get('likes', 0)
@@ -932,13 +1021,48 @@ def like_instant():
         'accounts_used': result.get('accounts_used', 0)
     })
 
+@app.route('/add-auto-user', methods=['POST'])
+def add_auto_user():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    
+    if not uid:
+        return jsonify({'success': False, 'message': 'UID required'})
+    
+    if uid in auto_queue:
+        return jsonify({'success': False, 'message': 'UID already in auto-queue'})
+    
+    auto_queue.append(uid)
+    save_users()
+    log_message(f"Added {uid} to auto-queue manually", "info")
+    return jsonify({'success': True, 'message': f'Added {uid} to auto-queue'})
+
+@app.route('/remove-auto-user', methods=['POST'])
+def remove_auto_user():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    
+    if uid in auto_queue:
+        auto_queue.remove(uid)
+        save_users()
+        log_message(f"Removed {uid} from auto-queue", "info")
+        return jsonify({'success': True, 'message': f'Removed {uid}'})
+    
+    return jsonify({'success': False, 'message': 'UID not in auto-queue'})
+
+@app.route('/clear-auto-queue', methods=['POST'])
+def clear_auto_queue():
+    auto_queue.clear()
+    save_users()
+    log_message("Cleared entire auto-queue", "info")
+    return jsonify({'success': True, 'message': 'Auto-queue cleared'})
+
 @app.route('/like', methods=['GET'])
 def handle_requests():
+    # Legacy endpoint for backward compatibility
     uid = request.args.get("uid")
     server_name = request.args.get("server_name", "").upper()
     key = request.args.get("key")
-    client_ip = request.remote_addr
-    
     likes_param = request.args.get("likes")
     requested_likes = int(likes_param) if likes_param and likes_param.isdigit() else None
 
@@ -950,84 +1074,31 @@ def handle_requests():
 
     valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD", "RU"]
     if server_name not in valid_servers:
-        return jsonify({"error": "Invalid server. Use: " + str(valid_servers)}), 400
+        return jsonify({"error": "Invalid server"}), 400
 
-    accounts = load_accounts(server_name)
-    if not accounts:
-        return jsonify({"error": "No accounts for " + server_name}), 500
-    
-    today_midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
-    count, last_reset = tracker[client_ip]
-
-    if last_reset < today_midnight:
-        tracker[client_ip] = [0, time.time()]
-        count = 0
-
-    if count >= KEY_LIMIT:
-        return jsonify({"error": "Daily limit reached", "remains": "(0/" + str(KEY_LIMIT) + ")"}), 429
-    
-    check_token = None
-    for account in accounts[:5]:
-        check_token = asyncio.run(get_valid_token(account['uid'], account['password']))
-        if check_token:
-            break
-    
-    if not check_token:
-        return jsonify({"error": "No valid accounts"}), 500
-    
-    encrypted_uid = enc(uid)
-    before = get_player_info(encrypted_uid, server_name, check_token)
-    if before is None:
-        return jsonify({"error": "Invalid UID or server", "status": 0}), 200
-
-    try:
-        before_data = json.loads(MessageToJson(before))
-        before_like = int(before_data['AccountInfo'].get('Likes', 0))
-    except:
-        return jsonify({"error": "Data parsing failed", "status": 0}), 200
-
+    limit = requested_likes if requested_likes and requested_likes > 0 else 50
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         like_url = "https://client.us.freefiremobile.com/LikeProfile"
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
-
-    limit = requested_likes if requested_likes and requested_likes > 0 else 50
+    
     result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, limit))
-    success_count = result['success']
-
-    after = get_player_info(encrypted_uid, server_name, check_token)
-    if after is None:
-        return jsonify({"error": "Could not verify likes", "status": 0}), 200
-
-    try:
-        after_data = json.loads(MessageToJson(after))
-        after_like = int(after_data['AccountInfo']['Likes'])
-        player_id = int(after_data['AccountInfo']['UID'])
-        player_name = str(after_data['AccountInfo']['PlayerNickname'])
-        
-        like_given = after_like - before_like
-        status = 1 if success_count > 0 else 2
-
-        return jsonify({
-            "LikesGivenByAPI": success_count,
-            "VerifiedLikesAdded": like_given,
-            "LikesafterCommand": after_like,
-            "LikesbeforeCommand": before_like,
-            "PlayerNickname": player_name,
-            "UID": player_id,
-            "status": status,
-            "remains": "(" + str(KEY_LIMIT - count) + "/" + str(KEY_LIMIT) + ")",
-            "total_accounts": len(accounts),
-            "limit_requested": limit,
-            "skipped_24hr": result.get('skipped', 0),
-            "accounts_used": result.get('accounts_used', 0),
-            "failed": result.get('failed', 0),
-            "next_reset_at": get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
-        })
-    except Exception as e:
-        return jsonify({"error": str(e), "status": 0}), 500
+    
+    # Add to auto-queue if success
+    if result['success'] > 0 and uid not in auto_queue:
+        auto_queue.append(uid)
+        save_users()
+        log_message(f"Added {uid} to auto-queue (API like)", "success")
+    
+    return jsonify({
+        "LikesGivenByAPI": result['success'],
+        "total_accounts": len(load_accounts(server_name)),
+        "skipped_24hr": result.get('skipped', 0),
+        "accounts_used": result.get('accounts_used', 0),
+        "failed": result.get('failed', 0)
+    })
 
 @app.route('/reset-cache', methods=['GET'])
 def reset_cache():
@@ -1040,18 +1111,24 @@ def reset_cache():
 
 @app.route('/health', methods=['GET'])
 def health_check():
-    accounts = load_accounts("IND")
     return jsonify({
         "status": "healthy",
-        "accounts_loaded": len(accounts),
+        "accounts_loaded": len(load_accounts("IND")),
         "server": "Railway",
         "reset_time": "4:00 AM IST Daily",
-        "auto_like": "Running",
-        "users": len(auto_like_users)
+        "auto_queue": len(auto_queue)
     })
 
+# Logging function
+def log_message(message, log_type="info"):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    with open('logs.txt', 'a') as f:
+        f.write(f"{timestamp}|{log_type}|{message}\n")
+    print(f"[{timestamp}] [{log_type.upper()}] {message}")
+
+# Background auto-like task
 async def auto_like_daily():
-    print("Auto-like scheduler started")
+    log_message("Auto-like scheduler started", "info")
     while True:
         try:
             now = datetime.now()
@@ -1062,37 +1139,55 @@ async def auto_like_daily():
             
             wait_seconds = (target_time - now).total_seconds()
             if wait_seconds > 0:
-                print("Next auto-like at: " + target_time.strftime('%Y-%m-%d %H:%M:%S') + " IST")
+                log_message(f"Next auto-like at {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
                 await asyncio.sleep(wait_seconds)
             
-            print("Starting auto-like at " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + " IST")
+            log_message(f"Starting auto-like cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
             
-            for user_uid in auto_like_users:
-                print("Processing user: " + user_uid)
+            # Get all accounts
+            accounts = load_accounts("IND")
+            if not accounts:
+                log_message("No accounts available for auto-like", "error")
+                await asyncio.sleep(60)
+                continue
+            
+            # Process each UID in auto_queue
+            for user_uid in auto_queue:
+                log_message(f"Processing auto-like for {user_uid}", "info")
                 
+                # Send 220 likes
                 result = await send_likes_ultra_fast(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
-                    492
+                    220
                 )
                 
-                print("Sent " + str(result['success']) + " likes to " + user_uid)
-                await asyncio.sleep(2)
+                # Update auto_likes_sent
+                if user_uid in user_stats:
+                    user_stats[user_uid]['auto_likes_sent'] = result['success']
+                else:
+                    user_stats[user_uid] = {'auto_likes_sent': result['success']}
+                save_users()
+                
+                log_message(f"Sent {result['success']} likes to {user_uid}", "success")
+                await asyncio.sleep(3)  # Small delay between users
             
-            print("Auto-like cycle complete at " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + " IST")
+            log_message(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
             
         except Exception as e:
-            print("Auto-like error: " + str(e))
+            log_message(f"Auto-like error: {str(e)}", "error")
             await asyncio.sleep(60)
 
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
+# Load data
 load_liked_data()
 load_account_status()
 load_users()
 
+# Start background threads
 reset_thread = threading.Thread(target=daily_reset_task, daemon=True)
 reset_thread.start()
 
@@ -1101,10 +1196,10 @@ auto_thread.start()
 
 threading.Thread(target=run_ultra_fast_check).start()
 
-print("Ultra-Fast Auto-Like System Started!")
-print("Users loaded: " + str(len(auto_like_users)))
-print("Accounts loaded: " + str(len(load_accounts("IND"))))
-print("Auto-reset at 4:00 AM IST")
+log_message("System started - Ultra-Fast Auto-Like System", "info")
+log_message(f"Accounts loaded: {len(load_accounts('IND'))}", "info")
+log_message(f"Auto-queue users: {len(auto_queue)}", "info")
+log_message("Auto-reset at 4:00 AM IST", "info")
 
 if __name__ == '__main__':
     import os
