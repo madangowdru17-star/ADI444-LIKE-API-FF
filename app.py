@@ -1,4 +1,9 @@
-from flask import Flask, request, jsonify, render_template_string, redirect, url_for, session
+# ------------------------------------------------------------
+#   FINAL WORKING VERSION – CYBERPUNK UI + MULTI-SERVER
+#   (Based on your working old code, no login required)
+# ------------------------------------------------------------
+
+from flask import Flask, request, jsonify, render_template_string
 import asyncio
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
@@ -22,7 +27,6 @@ import pickle
 import threading
 
 app = Flask(__name__)
-app.secret_key = 'your-secret-key-here'
 
 TOKEN_CACHE = {}
 KEY_LIMIT = 500
@@ -36,44 +40,41 @@ ACCOUNT_STATUS_FILE = "account_status.pkl"
 account_status = {}
 
 USERS_FILE = "users.pkl"
-auto_queue = []
+auto_like_users = []
 user_stats = {}
 
 RESET_HOUR = 4
 RESET_MINUTE = 0
 RESET_SECOND = 0
 
-RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1, 0.15, 0.2]
+RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
 
-last_auto_run = None
-auto_run_status = "Idle"
-auto_run_message = ""
-
+# ---------- Data persistence ----------
 def load_users():
-    global auto_queue, user_stats
+    global auto_like_users, user_stats
     try:
         if os.path.exists(USERS_FILE):
             with open(USERS_FILE, 'rb') as f:
                 data = pickle.load(f)
                 if isinstance(data, dict):
-                    auto_queue = data.get('users', [])
+                    auto_like_users = data.get('users', [])
                     user_stats = data.get('stats', {})
                 else:
-                    auto_queue = data
+                    auto_like_users = data
                     user_stats = {}
-                print(f"Loaded auto queue: {len(auto_queue)} UIDs")
+                print(f"Loaded {len(auto_like_users)} users")
         else:
-            auto_queue = []
+            auto_like_users = []
             user_stats = {}
             save_users()
     except Exception as e:
         print(f"Error loading users: {e}")
-        auto_queue = []
+        auto_like_users = []
         user_stats = {}
 
 def save_users():
     try:
-        data = {'users': auto_queue, 'stats': user_stats}
+        data = {'users': auto_like_users, 'stats': user_stats}
         with open(USERS_FILE, 'wb') as f:
             pickle.dump(data, f)
     except Exception as e:
@@ -136,7 +137,7 @@ def mark_as_liked(target_uid, account_uid):
 def update_user_stats(target_uid, likes_given, username="", current_likes=0):
     if target_uid not in user_stats:
         user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None,
-                                  'username': '', 'current_likes': 0, 'auto_sent': 0}
+                                  'username': '', 'current_likes': 0}
     user_stats[target_uid]['total_likes'] += likes_given
     user_stats[target_uid]['today_likes'] += likes_given
     user_stats[target_uid]['last_like'] = datetime.now().isoformat()
@@ -176,13 +177,12 @@ def reset_all_data():
         account_status[uid]['reset_time'] = datetime.now().isoformat()
     for uid in user_stats:
         user_stats[uid]['today_likes'] = 0
-        user_stats[uid]['auto_sent'] = 0
     save_liked_data()
     save_account_status()
     save_users()
 
 def load_accounts(server_name):
-    """Load accounts from the appropriate file based on server."""
+    """Load accounts from the correct file for the server."""
     try:
         server_map = {
             'IND': 'account_ind.txt',
@@ -213,6 +213,7 @@ def load_accounts(server_name):
     except:
         return []
 
+# ---------- Core async functions ----------
 async def get_user_info(target_uid, server_name="IND"):
     try:
         accounts = load_accounts(server_name)
@@ -246,7 +247,7 @@ async def generate_jwt_token(uid, password):
         encoded_password = urllib.parse.quote(password)
         url = f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={encoded_password}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=8) as response:
+            async with session.get(url, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
                     if isinstance(data, dict):
@@ -288,7 +289,7 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
+async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retries=3):
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -297,46 +298,54 @@ async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
         'X-GA': "v1 1",
         'ReleaseVersion': "OB54"
     }
-    try:
-        async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=edata, headers=headers, timeout=3) as response:
-                response_text = await response.text()
-                if response.status == 200:
-                    if account_uid in account_status:
-                        account_status[account_uid]['status'] = 'working'
-                        account_status[account_uid]['last_check'] = datetime.now().isoformat()
-                        save_account_status()
-                    return True, None
-                elif "LIMIT" in response_text:
-                    if account_uid in account_status:
-                        account_status[account_uid]['status'] = 'timeout'
-                        account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
-                        save_account_status()
-                    return False, "limit"
-                else:
-                    return False, "failed"
-    except:
-        return False, "error"
+    for attempt in range(max_retries):
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, data=edata, headers=headers, timeout=5) as response:
+                    response_text = await response.text()
+                    if response.status == 200:
+                        if account_uid in account_status:
+                            account_status[account_uid]['status'] = 'working'
+                            account_status[account_uid]['last_check'] = datetime.now().isoformat()
+                            save_account_status()
+                        return True, None
+                    elif "LIMIT" in response_text:
+                        if account_uid in account_status:
+                            account_status[account_uid]['status'] = 'timeout'
+                            account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
+                            save_account_status()
+                        return False, "limit_reached"
+                    elif response.status == 429:
+                        await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS) * 2)
+                        continue
+                    else:
+                        await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS))
+                        continue
+        except:
+            continue
+    return False, "max_retries"
 
-async def send_likes_ultra_fast(target_uid, server_name, url, limit):
+async def send_likes_batch(target_uid, server_name, url, limit):
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0}
     fresh_accounts = []
-    skipped_24hr = 0
+    skipped = 0
     for acc in accounts:
         if is_uid_liked_in_24hrs(target_uid, acc['uid']):
-            skipped_24hr += 1
+            skipped += 1
         else:
             fresh_accounts.append(acc)
     if not fresh_accounts:
-        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped_24hr}
+        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped}
+    random.shuffle(fresh_accounts)
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
+    semaphore = asyncio.Semaphore(30)
     tasks = []
     for acc in accounts_to_use:
-        tasks.append(send_single_ultra_fast(target_uid, encrypted_uid, acc, url))
+        tasks.append(send_single_like(target_uid, encrypted_uid, acc, url, semaphore))
     results = await asyncio.gather(*tasks, return_exceptions=True)
     successful = 0
     failed = 0
@@ -356,50 +365,22 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
         'failed': failed,
         'total': len(accounts),
         'accounts_used': len(accounts_to_use),
-        'skipped': skipped_24hr
+        'skipped': skipped
     }
 
-async def send_single_ultra_fast(target_uid, encrypted_uid, account, url):
-    try:
-        token = await get_valid_token(account['uid'], account['password'])
-        if not token:
+async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
+    async with semaphore:
+        try:
+            token = await get_valid_token(account['uid'], account['password'])
+            if not token:
+                return {'status': 'failed', 'uid': account['uid']}
+            success, _ = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
+            if success:
+                return {'status': 'success', 'uid': account['uid']}
+            else:
+                return {'status': 'failed', 'uid': account['uid']}
+        except:
             return {'status': 'failed', 'uid': account['uid']}
-        success, _ = await send_like_ultra_fast(encrypted_uid, token, url, account['uid'])
-        if success:
-            return {'status': 'success', 'uid': account['uid']}
-        else:
-            return {'status': 'failed', 'uid': account['uid']}
-    except:
-        return {'status': 'failed', 'uid': account['uid']}
-
-async def check_all_accounts_ultra_fast(server="IND"):
-    accounts = load_accounts(server)
-    if not accounts:
-        return
-    tasks = []
-    for acc in accounts[:100]:
-        tasks.append(check_single_account(acc))
-    await asyncio.gather(*tasks, return_exceptions=True)
-
-async def check_single_account(account):
-    try:
-        token = await get_valid_token(account['uid'], account['password'])
-        if token:
-            account_status[account['uid']] = {
-                'status': 'working',
-                'last_check': datetime.now().isoformat()
-            }
-        else:
-            account_status[account['uid']] = {
-                'status': 'unknown',
-                'last_check': datetime.now().isoformat()
-            }
-        save_account_status()
-    except:
-        pass
-
-def run_ultra_fast_check(server="IND"):
-    asyncio.run(check_all_accounts_ultra_fast(server))
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -438,58 +419,75 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# ------------------------------------------------------------
-# LOGIN PAGE (cyberpunk style)
-# ------------------------------------------------------------
-LOGIN_HTML = '''
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .login-box { background: rgba(10,14,26,0.8); backdrop-filter: blur(20px); padding: 40px 30px; border-radius: 16px; border: 1px solid rgba(0,255,255,0.2); max-width: 400px; width: 90%; position: relative; overflow: hidden; box-shadow: 0 0 40px rgba(0,255,255,0.1); }
-        .login-box::before { content: ''; position: absolute; top: -2px; left: -2px; right: -2px; bottom: -2px; background: linear-gradient(45deg, #00ffff, transparent, #ff00ff, transparent); background-size: 300% 300%; animation: borderGlow 3s ease infinite; border-radius: 16px; z-index: -1; }
-        @keyframes borderGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-        .login-box h1 { color: #00ffff; font-size: 2em; text-align: center; margin-bottom: 10px; text-shadow: 0 0 20px rgba(0,255,255,0.3); }
-        .login-box p { color: #8899bb; text-align: center; margin-bottom: 30px; font-size: 0.95em; }
-        .login-box input { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(0,255,255,0.2); background: rgba(0,0,0,0.4); color: #fff; font-size: 1em; margin-bottom: 15px; transition: 0.3s; }
-        .login-box input:focus { outline: none; border-color: #00ffff; box-shadow: 0 0 20px rgba(0,255,255,0.1); }
-        .login-box .login-btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: linear-gradient(135deg, #00ffff, #0088ff); color: #000; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .login-box .login-btn:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(0,255,255,0.3); }
-        .login-error { color: #ff0044; text-align: center; margin-top: 15px; display: none; }
-        .icon { font-size: 3em; text-align: center; margin-bottom: 10px; color: #00ffff; }
-    </style>
-</head>
-<body>
-    <div class="login-box">
-        <div class="icon"><i class="fas fa-shield-alt"></i></div>
-        <h1>Auto-Like System</h1>
-        <p>Enter credentials to access the dashboard</p>
-        <form method="POST" action="/login">
-            <input type="text" name="username" placeholder="Username" value="admin" required />
-            <input type="password" name="password" placeholder="Password" value="admin123" required />
-            <button type="submit" class="login-btn"><i class="fas fa-sign-in-alt"></i> Login</button>
-        </form>
-        <div class="login-error" id="login-error">Invalid credentials!</div>
-    </div>
-</body>
-</html>
-'''
+# ---------- Background tasks ----------
+async def check_all_accounts_status():
+    accounts = load_accounts("IND")
+    for acc in accounts:
+        try:
+            token = await get_valid_token(acc['uid'], acc['password'])
+            if token:
+                protobuf_message = create_protobuf_message("3997461446", "IND")
+                encrypted_uid = encrypt_message(protobuf_message)
+                url = "https://client.ind.freefiremobile.com/LikeProfile"
+                success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
+                if success:
+                    account_status[acc['uid']] = {'status': 'working', 'last_check': datetime.now().isoformat()}
+                else:
+                    account_status[acc['uid']] = {'status': 'timeout', 'last_check': datetime.now().isoformat(),
+                                                  'reset_time': get_next_reset_time().isoformat()}
+            else:
+                account_status[acc['uid']] = {'status': 'unknown', 'last_check': datetime.now().isoformat()}
+            save_account_status()
+            await asyncio.sleep(0.5)
+        except:
+            continue
 
-# ------------------------------------------------------------
-# DASHBOARD – cyberpunk / modder style
-# ------------------------------------------------------------
+def run_status_check():
+    asyncio.run(check_all_accounts_status())
+
+async def auto_like_daily():
+    print("Auto-like scheduler started")
+    while True:
+        try:
+            now = datetime.now()
+            target_time = now.replace(hour=4, minute=0, second=0, microsecond=0)
+            if now.hour >= 4:
+                target_time = target_time + timedelta(days=1)
+            wait_seconds = (target_time - now).total_seconds()
+            if wait_seconds > 0:
+                print(f"Next auto-like at: {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST")
+                await asyncio.sleep(wait_seconds)
+            print(f"Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+            accounts = load_accounts("IND")
+            if not accounts:
+                print("No accounts available")
+                await asyncio.sleep(60)
+                continue
+            for user_uid in auto_like_users:
+                print(f"Processing user: {user_uid}")
+                result = await send_likes_batch(
+                    user_uid,
+                    "IND",
+                    "https://client.ind.freefiremobile.com/LikeProfile",
+                    50
+                )
+                print(f"Sent {result['success']} likes to {user_uid}")
+                await asyncio.sleep(3)
+            print(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+        except Exception as e:
+            print(f"Auto-like error: {e}")
+            await asyncio.sleep(60)
+
+def start_auto_like():
+    asyncio.run(auto_like_daily())
+
+# ---------- HTML Dashboard (Cyberpunk style, no login) ----------
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Auto-Like Dashboard</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
@@ -505,7 +503,6 @@ DASHBOARD_HTML = '''
         }
         .container { max-width: 1400px; margin: 0 auto; padding: 15px; }
 
-        /* Glass panels with neon borders */
         .glass {
             background: rgba(10,14,26,0.6);
             backdrop-filter: blur(12px);
@@ -514,7 +511,7 @@ DASHBOARD_HTML = '''
             border-radius: 16px;
             transition: 0.3s;
         }
-        .glass:hover { border-color: rgba(0,255,255,0.3); box-shadow: 0 8px 40px rgba(0,255,255,0.1); }
+        .glass:hover { border-color: rgba(0,255,255,0.3); }
 
         .header { padding: 20px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
         .header h1 { font-size: 1.8em; color: #00ffff; text-shadow: 0 0 20px rgba(0,255,255,0.3); }
@@ -638,7 +635,6 @@ DASHBOARD_HTML = '''
 </head>
 <body>
     <div class="container">
-        <!-- Header -->
         <div class="header glass">
             <div>
                 <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
@@ -650,18 +646,15 @@ DASHBOARD_HTML = '''
                 <button class="btn btn-refresh" onclick="location.reload()"><i class="fas fa-sync"></i></button>
                 <button class="btn btn-check" onclick="checkStatus()"><i class="fas fa-search"></i></button>
                 <button class="btn btn-auto-run" onclick="forceAutoRun()" id="forceAutoBtn"><i class="fas fa-play"></i> Run Auto</button>
-                <a href="/logout"><button class="btn btn-logout"><i class="fas fa-sign-out-alt"></i></button></a>
             </div>
         </div>
 
-        <!-- Status Row -->
         <div class="status-row">
             <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
             <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
             <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
         </div>
 
-        <!-- Stats Cards -->
         <div class="status-grid">
             <div class="status-card glass"><div class="num" style="color:#4488ff;" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
             <div class="status-card glass"><div class="num" style="color:#00ff66;" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
@@ -671,7 +664,6 @@ DASHBOARD_HTML = '''
             <div class="status-card glass"><div class="num" style="color:#00ffff;" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
         </div>
 
-        <!-- Server Selector + Send Likes Panel -->
         <div class="panel glass">
             <h2><i class="fas fa-paper-plane"></i> Send Likes</h2>
             <div class="server-selector">
@@ -703,7 +695,6 @@ DASHBOARD_HTML = '''
             <div class="note"><i class="fas fa-info-circle"></i> Enter UID and click like count. Successful likes automatically add to auto-queue.</div>
         </div>
 
-        <!-- Account Status Table -->
         <div class="section-title"><i class="fas fa-table"></i> Account Status <span class="live-dot"></span></div>
         <div id="account-error" class="error-msg" style="display:none;"><i class="fas fa-exclamation-circle"></i> <span id="error-text">No accounts loaded. Check account file.</span></div>
         <div class="table-wrap glass" style="padding:0; overflow:hidden;">
@@ -713,11 +704,9 @@ DASHBOARD_HTML = '''
             </table>
         </div>
 
-        <!-- Auto-Queue Users Stats -->
         <div class="section-title"><i class="fas fa-users"></i> Auto-Queue Users</div>
         <div class="user-stats-grid" id="auto-queue-stats"></div>
 
-        <!-- Logs -->
         <div class="section-title"><i class="fas fa-terminal"></i> Activity Log</div>
         <div class="log-area glass" style="background:rgba(0,0,0,0.3);">
             <div class="log-entry"><span class="log-info">System ready.</span></div>
@@ -743,8 +732,8 @@ DASHBOARD_HTML = '''
 
         function loadData() {
             fetch('/api/dashboard-data?server=' + currentServer)
-                .then(function(res) { return res.json(); })
-                .then(function(data) {
+                .then(res => res.json())
+                .then(data => {
                     if (data.error) {
                         document.getElementById('account-error').style.display = 'block';
                         document.getElementById('error-text').textContent = data.error;
@@ -763,50 +752,49 @@ DASHBOARD_HTML = '''
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
 
-                    var userHtml = '';
-                    if (data.auto_queue && data.auto_queue.length > 0) {
-                        data.auto_queue.forEach(function(uid) {
-                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, auto_sent: 0 };
-                            userHtml += '<div class="user-item">' +
-                                '<span class="uid">' + uid + '</span>' +
-                                '<span class="stats">T:<span>' + (s.total_likes||0) + '</span> D:<span>' + (s.today_likes||0) + '</span> A:<span>' + (s.auto_sent||0) + '</span></span>' +
-                                '<button class="del-btn" onclick="removeAutoUser(\'' + uid + '\')"><i class="fas fa-times"></i></button>' +
-                            '</div>';
+                    let userHtml = '';
+                    if (data.users && data.users.length > 0) {
+                        data.users.forEach(user => {
+                            const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
+                            userHtml += `<div class="user-item">
+                                <span class="uid">${user}</span>
+                                <span class="stats">T:<span>${s.total_likes||0}</span> D:<span>${s.today_likes||0}</span></span>
+                                <button class="del-btn" onclick="deleteUser('${user}')"><i class="fas fa-times"></i></button>
+                            </div>`;
                         });
                     } else {
                         userHtml = '<div class="note">No users in auto-queue</div>';
                     }
                     document.getElementById('auto-user-list').innerHTML = userHtml;
 
-                    var tableHtml = '';
+                    let tableHtml = '';
                     if (data.accounts && data.accounts.length > 0) {
-                        data.accounts.forEach(function(acc) {
-                            var cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
-                            tableHtml += '<tr>' +
-                                '<td><strong>' + acc.uid + '</strong></td>' +
-                                '<td><span class="badge badge-' + cls + '">' + acc.status + '</span></td>' +
-                                '<td>' + (acc.last_check ? formatTime(acc.last_check) : 'Never') + '</td>' +
-                                '<td>' + (acc.reset_time ? formatTime(acc.reset_time) : 'N/A') + '</td>' +
-                                '<td>' + (acc.last_error || 'None') + '</td>' +
-                            '</tr>';
+                        data.accounts.forEach(acc => {
+                            const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
+                            tableHtml += `<tr>
+                                <td><strong>${acc.uid}</strong></td>
+                                <td><span class="badge badge-${cls}">${acc.status}</span></td>
+                                <td>${acc.last_check ? formatTime(acc.last_check) : 'Never'}</td>
+                                <td>${acc.reset_time ? formatTime(acc.reset_time) : 'N/A'}</td>
+                                <td>${acc.last_error || 'None'}</td>
+                            </tr>`;
                         });
                     } else {
                         tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
                     }
                     document.getElementById('account-table').innerHTML = tableHtml;
 
-                    var statsHtml = '';
-                    if (data.auto_queue && data.auto_queue.length > 0) {
-                        data.auto_queue.forEach(function(uid) {
-                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, last_like: null, username: '', current_likes: 0, auto_sent: 0 };
-                            statsHtml += '<div class="user-stat-card">' +
-                                '<div class="uid">UID: ' + uid + '</div>' +
-                                '<div class="name">' + (s.username || 'Unknown') + '</div>' +
-                                '<div class="row"><span>Total</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
-                                '<div class="row"><span>Today</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
-                                '<div class="row"><span>Auto Sent</span><span class="val">' + (s.auto_sent||0) + '</span></div>' +
-                                '<div class="last">Last: ' + (s.last_like ? formatTime(s.last_like) : 'Never') + '</div>' +
-                            '</div>';
+                    let statsHtml = '';
+                    if (data.users && data.users.length > 0) {
+                        data.users.forEach(uid => {
+                            const s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, last_like: null, username: '' };
+                            statsHtml += `<div class="user-stat-card">
+                                <div class="uid">UID: ${uid}</div>
+                                <div class="name">${s.username || 'Unknown'}</div>
+                                <div class="row"><span>Total</span><span class="val">${s.total_likes||0}</span></div>
+                                <div class="row"><span>Today</span><span class="val">${s.today_likes||0}</span></div>
+                                <div class="last">Last: ${s.last_like ? formatTime(s.last_like) : 'Never'}</div>
+                            </div>`;
                         });
                     } else {
                         statsHtml = '<div class="note">No auto-queue users</div>';
@@ -814,17 +802,17 @@ DASHBOARD_HTML = '''
                     document.getElementById('auto-queue-stats').innerHTML = statsHtml;
 
                     if (data.logs && data.logs.length > 0) {
-                        var logHtml = '';
-                        data.logs.forEach(function(log) {
-                            logHtml += '<div class="log-entry">' +
-                                '<span class="log-time">[' + log.time + ']</span> ' +
-                                '<span class="log-' + log.type + '">' + log.message + '</span>' +
-                            '</div>';
+                        let logHtml = '';
+                        data.logs.forEach(log => {
+                            logHtml += `<div class="log-entry">
+                                <span class="log-time">[${log.time}]</span>
+                                <span class="log-${log.type}">${log.message}</span>
+                            </div>`;
                         });
                         document.getElementById('log-area').innerHTML = logHtml;
                     }
                 })
-                .catch(function(err) {
+                .catch(err => {
                     document.getElementById('account-error').style.display = 'block';
                     document.getElementById('error-text').textContent = 'Failed to load data: ' + err.message;
                 });
@@ -832,34 +820,34 @@ DASHBOARD_HTML = '''
 
         function checkStatus() {
             fetch('/api/check-status?server=' + currentServer)
-                .then(function(res) { return res.json(); })
-                .then(function(data) {
+                .then(res => res.json())
+                .then(data => {
                     console.log('Status check started');
                     setTimeout(loadData, 3000);
                 });
         }
 
         function sendLikes(count) {
-            var uid = document.getElementById('target-uid').value.trim();
+            const uid = document.getElementById('target-uid').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
-            if (!confirm('Send ' + count + ' likes to ' + uid + ' on server ' + currentServer + '?')) return;
+            if (!confirm(`Send ${count} likes to ${uid} on server ${currentServer}?`)) return;
 
-            var btns = document.querySelectorAll('.btn-like, .btn-like20, .btn-like220');
-            var btn = btns[0];
+            const btns = document.querySelectorAll('.btn-like, .btn-like20, .btn-like220');
+            const btn = btns[0];
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.disabled = true;
 
             fetch('/send-likes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid: uid, server_name: currentServer, key: 'JMLB', count: count })
+                body: JSON.stringify({ uid, server_name: currentServer, key: 'JMLB', count })
             })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
+            .then(res => res.json())
+            .then(data => {
                 btn.innerHTML = '<i class="fas fa-check"></i>';
                 btn.disabled = false;
                 if (data.success) {
-                    alert('✓ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal: ' + data.total_likes);
+                    alert(`✓ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal: ${data.total_likes}`);
                 } else {
                     alert('✗ Error: ' + (data.error || 'Unknown error'));
                 }
@@ -868,15 +856,15 @@ DASHBOARD_HTML = '''
         }
 
         function addAutoUser() {
-            var uid = document.getElementById('target-uid').value.trim();
+            const uid = document.getElementById('target-uid').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
-            fetch('/add-auto-user', {
+            fetch('/add-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid: uid })
+                body: JSON.stringify({ uid })
             })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
+            .then(res => res.json())
+            .then(data => {
                 if (data.success) {
                     alert('Added to queue: ' + uid);
                     loadData();
@@ -886,15 +874,15 @@ DASHBOARD_HTML = '''
             });
         }
 
-        function removeAutoUser(uid) {
-            if (!confirm('Remove ' + uid + ' from queue?')) return;
-            fetch('/remove-auto-user', {
+        function deleteUser(uid) {
+            if (!confirm(`Remove ${uid} from queue?`)) return;
+            fetch('/delete-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid: uid })
+                body: JSON.stringify({ uid })
             })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
+            .then(res => res.json())
+            .then(data => {
                 if (data.success) loadData();
                 else alert(data.message);
             });
@@ -902,24 +890,21 @@ DASHBOARD_HTML = '''
 
         function deleteAllAuto() {
             if (!confirm('Clear entire auto-queue?')) return;
-            fetch('/clear-auto-queue', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' }
-            })
-            .then(function(res) { return res.json(); })
-            .then(function(data) {
-                if (data.success) loadData();
-                else alert(data.message);
-            });
+            fetch('/delete-all-users', { method: 'POST' })
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success) loadData();
+                    else alert(data.message);
+                });
         }
 
         function forceAutoRun() {
-            var btn = document.getElementById('forceAutoBtn');
+            const btn = document.getElementById('forceAutoBtn');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.disabled = true;
             fetch('/force-auto-run', { method: 'POST' })
-                .then(function(res) { return res.json(); })
-                .then(function(data) {
+                .then(res => res.json())
+                .then(data => {
                     btn.innerHTML = '<i class="fas fa-play"></i> Run Auto';
                     btn.disabled = false;
                     if (data.success) {
@@ -939,37 +924,17 @@ DASHBOARD_HTML = '''
 </html>
 '''
 
-# ------------------------------------------------------------
-# ROUTES
-# ------------------------------------------------------------
+# ---------- Routes ----------
 @app.route('/')
-def index():
-    if session.get('logged_in'):
-        return render_template_string(DASHBOARD_HTML)
-    return render_template_string(LOGIN_HTML)
-
-@app.route('/login', methods=['POST'])
-def login():
-    username = request.form.get('username')
-    password = request.form.get('password')
-    if username == 'admin' and password == 'admin123':
-        session['logged_in'] = True
-        return redirect('/')
-    return render_template_string(LOGIN_HTML)
-
-@app.route('/logout')
-def logout():
-    session.pop('logged_in', None)
-    return redirect('/')
+def dashboard():
+    return render_template_string(DASHBOARD_HTML)
 
 @app.route('/api/dashboard-data')
 def dashboard_data():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     server = request.args.get('server', 'IND')
     accounts = load_accounts(server)
     if not accounts:
-        return jsonify({'error': f'No accounts found for server {server}. Check account file.'}), 200
+        return jsonify({'error': f'No accounts found for server {server}. Check account file.'})
     total = len(accounts)
     working_count = 0
     timeout_count = 0
@@ -993,6 +958,10 @@ def dashboard_data():
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
     global last_auto_run, auto_run_status, auto_run_message
+    # Dummy values for auto-run info – you can track them if you want
+    last_auto_run = None
+    auto_run_status = "Idle"
+    auto_run_message = ""
     logs = []
     try:
         with open('logs.txt', 'r') as f:
@@ -1009,9 +978,9 @@ def dashboard_data():
         'timeout_count': timeout_count,
         'total_likes': total_likes,
         'targets_liked': targets_liked,
-        'auto_users': len(auto_queue),
+        'auto_users': len(auto_like_users),
         'next_reset': next_reset,
-        'auto_queue': auto_queue,
+        'users': auto_like_users,
         'user_stats': user_stats,
         'accounts': account_list,
         'logs': logs,
@@ -1022,11 +991,41 @@ def dashboard_data():
 
 @app.route('/api/check-status')
 def check_status_api():
-    if not session.get('logged_in'):
-        return jsonify({'error': 'Unauthorized'}), 401
     server = request.args.get('server', 'IND')
-    threading.Thread(target=run_ultra_fast_check, args=(server,)).start()
+    threading.Thread(target=run_status_check).start()
     return jsonify({'message': f'Status check started for {server}'})
+
+@app.route('/add-user', methods=['POST'])
+def add_user():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    if not uid:
+        return jsonify({'success': False, 'message': 'UID required'})
+    if uid in auto_like_users:
+        return jsonify({'success': False, 'message': 'UID already in list'})
+    auto_like_users.append(uid)
+    user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
+    save_users()
+    return jsonify({'success': True, 'message': f'Added {uid}'})
+
+@app.route('/delete-user', methods=['POST'])
+def delete_user():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    if uid in auto_like_users:
+        auto_like_users.remove(uid)
+        if uid in user_stats:
+            del user_stats[uid]
+        save_users()
+        return jsonify({'success': True, 'message': f'Removed {uid}'})
+    return jsonify({'success': False, 'message': 'UID not found'})
+
+@app.route('/delete-all-users', methods=['POST'])
+def delete_all_users():
+    auto_like_users.clear()
+    user_stats.clear()
+    save_users()
+    return jsonify({'success': True, 'message': 'All users deleted'})
 
 @app.route('/send-likes', methods=['POST'])
 def send_likes_manual():
@@ -1045,11 +1044,10 @@ def send_likes_manual():
         like_url = "https://client.us.freefiremobile.com/LikeProfile"
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
-    result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, count))
-    if result['success'] > 0 and uid not in auto_queue:
-        auto_queue.append(uid)
+    result = asyncio.run(send_likes_batch(uid, server_name, like_url, count))
+    if result['success'] > 0 and uid not in auto_like_users:
+        auto_like_users.append(uid)
         save_users()
-        log_message(f"Added {uid} to auto-queue (manual like on {server_name})", "success")
     user_info = asyncio.run(get_user_info(uid, server_name))
     if user_info:
         username = user_info.get('name', 'Unknown')
@@ -1067,117 +1065,78 @@ def send_likes_manual():
         'accounts_used': result.get('accounts_used', 0)
     })
 
-@app.route('/add-auto-user', methods=['POST'])
-def add_auto_user():
-    data = request.get_json()
-    uid = data.get('uid', '').strip()
-    if not uid:
-        return jsonify({'success': False, 'message': 'UID required'})
-    if uid in auto_queue:
-        return jsonify({'success': False, 'message': 'UID already in queue'})
-    auto_queue.append(uid)
-    save_users()
-    log_message(f"Added {uid} to auto-queue manually", "info")
-    return jsonify({'success': True, 'message': f'Added {uid}'})
-
-@app.route('/remove-auto-user', methods=['POST'])
-def remove_auto_user():
-    data = request.get_json()
-    uid = data.get('uid', '').strip()
-    if uid in auto_queue:
-        auto_queue.remove(uid)
-        save_users()
-        log_message(f"Removed {uid} from auto-queue", "info")
-        return jsonify({'success': True, 'message': f'Removed {uid}'})
-    return jsonify({'success': False, 'message': 'UID not in queue'})
-
-@app.route('/clear-auto-queue', methods=['POST'])
-def clear_auto_queue():
-    auto_queue.clear()
-    save_users()
-    log_message("Cleared auto-queue", "info")
-    return jsonify({'success': True, 'message': 'Queue cleared'})
-
 @app.route('/force-auto-run', methods=['POST'])
 def force_auto_run():
-    global last_auto_run, auto_run_status, auto_run_message
+    # Trigger auto-run manually
     def run_auto():
-        global last_auto_run, auto_run_status, auto_run_message
-        try:
-            auto_run_status = "Running"
-            auto_run_message = "Starting auto-like..."
-            log_message("Manual auto-run triggered", "info")
-            asyncio.run(auto_like_once())
-            last_auto_run = datetime.now().isoformat()
-            auto_run_status = "Completed"
-            auto_run_message = "Auto-like cycle finished"
-            log_message("Manual auto-run completed", "success")
-        except Exception as e:
-            auto_run_status = "Error"
-            auto_run_message = str(e)
-            log_message(f"Manual auto-run error: {e}", "error")
+        asyncio.run(auto_like_daily_once())
     threading.Thread(target=run_auto).start()
     return jsonify({'success': True, 'message': 'Auto-run started'})
 
-async def auto_like_once():
-    log_message("Starting auto-like cycle", "info")
-    # Use IND server for auto-like (could be made configurable)
+async def auto_like_daily_once():
+    print("Manual auto-like run started")
     accounts = load_accounts("IND")
     if not accounts:
-        log_message("No accounts for auto-like", "error")
+        print("No accounts")
         return
-    for user_uid in auto_queue:
-        log_message(f"Processing auto-like for {user_uid}", "info")
-        result = await send_likes_ultra_fast(
+    for user_uid in auto_like_users:
+        print(f"Processing {user_uid}")
+        result = await send_likes_batch(
             user_uid,
             "IND",
             "https://client.ind.freefiremobile.com/LikeProfile",
-            220
+            50
         )
-        if user_uid in user_stats:
-            user_stats[user_uid]['auto_sent'] = result['success']
-        else:
-            user_stats[user_uid] = {'auto_sent': result['success']}
-        save_users()
-        log_message(f"Sent {result['success']} likes to {user_uid}", "success")
+        print(f"Sent {result['success']} likes to {user_uid}")
         await asyncio.sleep(3)
-    log_message("Auto-like cycle complete", "success")
 
-def log_message(message, log_type="info"):
-    timestamp = datetime.now().strftime("%H:%M:%S")
-    with open('logs.txt', 'a') as f:
-        f.write(f"{timestamp}|{log_type}|{message}\n")
-    print(f"[{timestamp}] [{log_type.upper()}] {message}")
+@app.route('/like', methods=['GET'])
+def handle_requests():
+    # Legacy endpoint
+    uid = request.args.get("uid")
+    server_name = request.args.get("server_name", "").upper()
+    key = request.args.get("key")
+    likes_param = request.args.get("likes")
+    requested_likes = int(likes_param) if likes_param and likes_param.isdigit() else None
+    if key != "JMLB":
+        return jsonify({"error": "Invalid API key"}), 403
+    if not uid or not server_name:
+        return jsonify({"error": "UID and server_name required"}), 400
+    valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD", "RU", "MENA"]
+    if server_name not in valid_servers:
+        return jsonify({"error": f"Invalid server. Use: {valid_servers}"}), 400
+    accounts = load_accounts(server_name)
+    if not accounts:
+        return jsonify({"error": f"No accounts for {server_name}"}), 500
+    if server_name == "IND":
+        like_url = "https://client.ind.freefiremobile.com/LikeProfile"
+    elif server_name in {"BR", "US", "SAC", "NA"}:
+        like_url = "https://client.us.freefiremobile.com/LikeProfile"
+    else:
+        like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
+    limit = requested_likes if requested_likes and requested_likes > 0 else 50
+    result = asyncio.run(send_likes_batch(uid, server_name, like_url, limit))
+    return jsonify({
+        "LikesGivenByAPI": result['success'],
+        "total_accounts": len(accounts),
+        "skipped_24hr": result.get('skipped', 0),
+        "accounts_used": result.get('accounts_used', 0),
+        "failed": result.get('failed', 0)
+    })
 
-async def auto_like_daily():
-    global last_auto_run, auto_run_status, auto_run_message
-    log_message("Auto-like scheduler started", "info")
-    while True:
-        try:
-            now = datetime.now()
-            target_time = now.replace(hour=4, minute=0, second=0, microsecond=0)
-            if now.hour >= 4:
-                target_time = target_time + timedelta(days=1)
-            wait_seconds = (target_time - now).total_seconds()
-            if wait_seconds > 0:
-                log_message(f"Next auto-like at {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
-                await asyncio.sleep(wait_seconds)
-            log_message(f"Daily auto-like starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
-            await auto_like_once()
-            last_auto_run = datetime.now().isoformat()
-            auto_run_status = "Completed"
-            auto_run_message = "Daily auto-like finished"
-            log_message("Daily auto-like cycle complete", "success")
-        except Exception as e:
-            log_message(f"Auto-like error: {str(e)}", "error")
-            await asyncio.sleep(60)
+@app.route('/reset-cache', methods=['GET'])
+def reset_cache():
+    key = request.args.get("key")
+    if key != "JMLB":
+        return jsonify({"error": "Invalid key"}), 403
+    reset_all_data()
+    return jsonify({"message": "All data reset"})
 
-def start_auto_like():
-    asyncio.run(auto_like_daily())
+@app.route('/health', methods=['GET'])
+def health():
+    return jsonify({"status": "healthy", "accounts": len(load_accounts("IND"))})
 
-# ------------------------------------------------------------
-# STARTUP
-# ------------------------------------------------------------
+# ---------- Startup ----------
 load_liked_data()
 load_account_status()
 load_users()
@@ -1188,18 +1147,11 @@ reset_thread.start()
 auto_thread = threading.Thread(target=start_auto_like, daemon=True)
 auto_thread.start()
 
-# Initial status check for IND
-threading.Thread(target=run_ultra_fast_check, args=("IND",)).start()
+threading.Thread(target=run_status_check).start()
 
-log_message("System started – Cyberpunk UI with multi‑server support", "info")
-log_message(f"IND accounts: {len(load_accounts('IND'))}", "info")
-log_message(f"BD accounts: {len(load_accounts('BD'))}", "info")
-log_message(f"MENA accounts: {len(load_accounts('MENA'))}", "info")
-log_message(f"BR accounts: {len(load_accounts('BR'))}", "info")
-log_message(f"Auto-queue: {len(auto_queue)}", "info")
-log_message("Auto-reset at 4:00 AM IST", "info")
+print("✅ Auto-Like System Started – Cyberpunk UI + Multi-Server")
+print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
-    import os
     port = int(os.environ.get('PORT', 5001))
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
