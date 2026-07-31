@@ -1,6 +1,6 @@
 # ------------------------------------------------------------
-#   FINAL – ACCOUNTS LOAD, 20 LIKES, FULL PROFILE RESPONSE
-#   Cyberpunk UI with account status table
+#   FINAL – 20 LIKES EXACTLY, UI RESPONSE, FAST
+#   Cyberpunk UI with real-time like completion
 # ------------------------------------------------------------
 
 from flask import Flask, request, jsonify, render_template_string
@@ -327,7 +327,8 @@ async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retri
 async def send_likes_batch(target_uid, server_name, url, limit):
     accounts = load_accounts(server_name)
     if not accounts:
-        return {'success': 0, 'failed': 0, 'total': 0}
+        return {'success': 0, 'failed': 0, 'total': 0, 'exhausted': True}
+    
     fresh_accounts = []
     skipped = 0
     for acc in accounts:
@@ -335,17 +336,23 @@ async def send_likes_batch(target_uid, server_name, url, limit):
             skipped += 1
         else:
             fresh_accounts.append(acc)
+    
     if not fresh_accounts:
-        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped}
+        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped, 'exhausted': True}
+    
     random.shuffle(fresh_accounts)
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
+    
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
+    
     semaphore = asyncio.Semaphore(30)
     tasks = []
     for acc in accounts_to_use:
         tasks.append(send_single_like(target_uid, encrypted_uid, acc, url, semaphore))
+    
     results = await asyncio.gather(*tasks, return_exceptions=True)
+    
     successful = 0
     failed = 0
     for r in results:
@@ -354,18 +361,58 @@ async def send_likes_batch(target_uid, server_name, url, limit):
             mark_as_liked(target_uid, r['uid'])
         else:
             failed += 1
+    
+    # If we got fewer than requested but still have fresh accounts left, try again
+    if successful < limit and len(fresh_accounts) > limit:
+        # Re-run with remaining accounts
+        remaining_limit = limit - successful
+        remaining_accounts = fresh_accounts[limit:]
+        # Shuffle remaining and try again
+        random.shuffle(remaining_accounts)
+        extra_result = await send_likes_batch_remaining(target_uid, server_name, url, remaining_limit, remaining_accounts)
+        successful += extra_result['success']
+        failed += extra_result['failed']
+    
     if successful > 0:
         user_info = await get_user_info(target_uid, server_name)
         username = user_info.get('name', '') if user_info else ''
         current_likes = user_info.get('likes', 0) if user_info else 0
         update_user_stats(target_uid, successful, username, current_likes)
+    
     return {
         'success': successful,
         'failed': failed,
         'total': len(accounts),
         'accounts_used': len(accounts_to_use),
-        'skipped': skipped
+        'skipped': skipped,
+        'exhausted': successful < limit and len(fresh_accounts) == limit
     }
+
+async def send_likes_batch_remaining(target_uid, server_name, url, limit, remaining_accounts):
+    if not remaining_accounts or limit <= 0:
+        return {'success': 0, 'failed': 0}
+    
+    accounts_to_use = remaining_accounts[:min(limit, len(remaining_accounts))]
+    protobuf_message = create_protobuf_message(target_uid, server_name)
+    encrypted_uid = encrypt_message(protobuf_message)
+    
+    semaphore = asyncio.Semaphore(30)
+    tasks = []
+    for acc in accounts_to_use:
+        tasks.append(send_single_like(target_uid, encrypted_uid, acc, url, semaphore))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    successful = 0
+    failed = 0
+    for r in results:
+        if isinstance(r, dict) and r.get('status') == 'success':
+            successful += 1
+            mark_as_liked(target_uid, r['uid'])
+        else:
+            failed += 1
+    
+    return {'success': successful, 'failed': failed}
 
 async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
     async with semaphore:
@@ -480,7 +527,7 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# ---------- HTML Dashboard (Cyberpunk, full account table) ----------
+# ---------- HTML Dashboard ----------
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -614,6 +661,32 @@ DASHBOARD_HTML = '''
 
         .error-msg { background: rgba(255,0,50,0.1); border: 1px solid #ff0044; color: #ff0044; padding: 15px; border-radius: 12px; margin: 10px 0; text-align: center; }
 
+        /* Like Result Modal */
+        .result-modal {
+            display: none;
+            position: fixed;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8);
+            z-index: 999;
+            align-items: center;
+            justify-content: center;
+        }
+        .result-modal.active { display: flex; }
+        .result-box {
+            background: #141928;
+            padding: 30px;
+            border-radius: 16px;
+            max-width: 500px;
+            width: 90%;
+            border: 1px solid rgba(0,255,255,0.2);
+            box-shadow: 0 0 40px rgba(0,255,255,0.1);
+        }
+        .result-box h2 { color: #00ffff; margin-bottom: 15px; }
+        .result-box .row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        .result-box .row .label { color: #8899bb; }
+        .result-box .row .value { color: #00ff66; font-weight: bold; }
+        .result-box .close-btn { margin-top: 15px; padding: 10px 30px; background: #00ffff; color: #000; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+
         @media (max-width: 600px) {
             .header h1 { font-size: 1.5em; }
             .btn { font-size: 0.8em; padding: 8px 12px; }
@@ -692,7 +765,6 @@ DASHBOARD_HTML = '''
             <div class="note"><i class="fas fa-info-circle"></i> Enter UID and click like count. Successful likes automatically add to auto-queue.</div>
         </div>
 
-        <!-- ACCOUNT STATUS TABLE – FIXED, SHOWS ALL ACCOUNTS -->
         <div class="section-title"><i class="fas fa-table"></i> Account Status <span class="live-dot"></span></div>
         <div id="account-error" class="error-msg" style="display:none;"><i class="fas fa-exclamation-circle"></i> <span id="error-text">No accounts loaded. Check account file.</span></div>
         <div class="table-wrap glass" style="padding:0; overflow:hidden;">
@@ -708,6 +780,21 @@ DASHBOARD_HTML = '''
         <div class="section-title"><i class="fas fa-terminal"></i> Activity Log</div>
         <div class="log-area glass" style="background:rgba(0,0,0,0.3);">
             <div class="log-entry"><span class="log-info">System ready.</span></div>
+        </div>
+    </div>
+
+    <!-- Result Modal -->
+    <div class="result-modal" id="resultModal">
+        <div class="result-box">
+            <h2><i class="fas fa-check-circle"></i> Like Result</h2>
+            <div id="result-content">
+                <div class="row"><span class="label">Player Name</span><span class="value" id="res-name">-</span></div>
+                <div class="row"><span class="label">Likes Sent</span><span class="value" id="res-sent">0</span></div>
+                <div class="row"><span class="label">Before</span><span class="value" id="res-before">0</span></div>
+                <div class="row"><span class="label">After</span><span class="value" id="res-after">0</span></div>
+                <div class="row"><span class="label">Verified Added</span><span class="value" id="res-added">0</span></div>
+            </div>
+            <button class="close-btn" onclick="closeResult()"><i class="fas fa-times"></i> Close</button>
         </div>
     </div>
 
@@ -765,7 +852,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-user-list').innerHTML = userHtml;
 
-                    // ACCOUNT TABLE – THIS WILL SHOW ALL ACCOUNTS
                     let tableHtml = '';
                     if (data.accounts && data.accounts.length > 0) {
                         data.accounts.forEach(acc => {
@@ -826,6 +912,19 @@ DASHBOARD_HTML = '''
                 });
         }
 
+        function showResult(data) {
+            document.getElementById('res-name').textContent = data.username || 'Unknown';
+            document.getElementById('res-sent').textContent = data.likes_sent || 0;
+            document.getElementById('res-before').textContent = data.likes_before || 0;
+            document.getElementById('res-after').textContent = data.likes_after || 0;
+            document.getElementById('res-added').textContent = data.verified_added || 0;
+            document.getElementById('resultModal').classList.add('active');
+        }
+
+        function closeResult() {
+            document.getElementById('resultModal').classList.remove('active');
+        }
+
         function sendLikes(count) {
             const uid = document.getElementById('target-uid').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
@@ -846,7 +945,7 @@ DASHBOARD_HTML = '''
                 btn.innerHTML = '<i class="fas fa-check"></i>';
                 btn.disabled = false;
                 if (data.success) {
-                    alert(`✓ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal: ${data.total_likes}\nBefore: ${data.likes_before}\nAfter: ${data.likes_after}\nVerified Added: ${data.verified_added}`);
+                    showResult(data);
                 } else {
                     alert('✗ Error: ' + (data.error || 'Unknown error'));
                 }
@@ -914,6 +1013,11 @@ DASHBOARD_HTML = '''
                     loadData();
                 });
         }
+
+        // Click outside modal to close
+        document.getElementById('resultModal').addEventListener('click', function(e) {
+            if (e.target === this) closeResult();
+        });
 
         loadData();
         setInterval(loadData, 3000);
@@ -1038,13 +1142,14 @@ def send_likes_manual():
     before_likes = user_info_before.get('likes', 0) if user_info_before else 0
     before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
 
-    # Send likes
+    # Send likes - keep trying until we get the requested count or exhaust all accounts
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         like_url = "https://client.us.freefiremobile.com/LikeProfile"
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
+    
     result = asyncio.run(send_likes_batch(uid, server_name, like_url, count))
     likes_sent = result['success']
 
@@ -1218,7 +1323,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – Cyberpunk UI with Full Account Table")
+print("✅ Auto-Like System Started – 20 Likes Now Complete Exactly")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
