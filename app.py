@@ -1,6 +1,6 @@
 # ------------------------------------------------------------
-#   FINAL – 20 LIKES EXACTLY, UI RESPONSE, FAST
-#   Cyberpunk UI with real-time like completion
+#   FINAL – 20 LIKES EXACTLY, AUTO-LIKE 4:02 AM, REAL RESPONSE
+#   Cyberpunk UI with full profile modal
 # ------------------------------------------------------------
 
 from flask import Flask, request, jsonify, render_template_string
@@ -324,11 +324,13 @@ async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retri
             continue
     return False, "max_retries"
 
-async def send_likes_batch(target_uid, server_name, url, limit):
+async def send_likes_until_complete(target_uid, server_name, url, target_count):
+    """Send likes until target_count is reached or all accounts exhausted."""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0, 'exhausted': True}
     
+    # Get fresh accounts (not liked in last 24hrs)
     fresh_accounts = []
     skipped = 0
     for acc in accounts:
@@ -341,38 +343,56 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped, 'exhausted': True}
     
     random.shuffle(fresh_accounts)
-    accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
-    
-    protobuf_message = create_protobuf_message(target_uid, server_name)
-    encrypted_uid = encrypt_message(protobuf_message)
-    
-    semaphore = asyncio.Semaphore(30)
-    tasks = []
-    for acc in accounts_to_use:
-        tasks.append(send_single_like(target_uid, encrypted_uid, acc, url, semaphore))
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
     
     successful = 0
     failed = 0
-    for r in results:
-        if isinstance(r, dict) and r.get('status') == 'success':
+    used_accounts = []
+    
+    # Keep trying until we reach target or run out of accounts
+    for acc in fresh_accounts:
+        if successful >= target_count:
+            break
+        
+        token = await get_valid_token(acc['uid'], acc['password'])
+        if not token:
+            failed += 1
+            continue
+        
+        protobuf_message = create_protobuf_message(target_uid, server_name)
+        encrypted_uid = encrypt_message(protobuf_message)
+        
+        success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
+        
+        if success:
             successful += 1
-            mark_as_liked(target_uid, r['uid'])
+            mark_as_liked(target_uid, acc['uid'])
+            used_accounts.append(acc['uid'])
         else:
             failed += 1
+        
+        # Small delay to avoid rate limit
+        await asyncio.sleep(0.3)
     
-    # If we got fewer than requested but still have fresh accounts left, try again
-    if successful < limit and len(fresh_accounts) > limit:
-        # Re-run with remaining accounts
-        remaining_limit = limit - successful
-        remaining_accounts = fresh_accounts[limit:]
-        # Shuffle remaining and try again
-        random.shuffle(remaining_accounts)
-        extra_result = await send_likes_batch_remaining(target_uid, server_name, url, remaining_limit, remaining_accounts)
-        successful += extra_result['success']
-        failed += extra_result['failed']
+    # If we still need more likes, retry failed accounts (except rate-limited ones)
+    if successful < target_count:
+        # Try again with any remaining fresh accounts
+        remaining = [acc for acc in fresh_accounts if acc['uid'] not in used_accounts]
+        if remaining:
+            for acc in remaining:
+                if successful >= target_count:
+                    break
+                token = await get_valid_token(acc['uid'], acc['password'])
+                if not token:
+                    continue
+                protobuf_message = create_protobuf_message(target_uid, server_name)
+                encrypted_uid = encrypt_message(protobuf_message)
+                success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
+                if success:
+                    successful += 1
+                    mark_as_liked(target_uid, acc['uid'])
+                await asyncio.sleep(0.3)
     
+    # Update user stats
     if successful > 0:
         user_info = await get_user_info(target_uid, server_name)
         username = user_info.get('name', '') if user_info else ''
@@ -383,50 +403,9 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         'success': successful,
         'failed': failed,
         'total': len(accounts),
-        'accounts_used': len(accounts_to_use),
         'skipped': skipped,
-        'exhausted': successful < limit and len(fresh_accounts) == limit
+        'exhausted': successful < target_count and len(fresh_accounts) == 0
     }
-
-async def send_likes_batch_remaining(target_uid, server_name, url, limit, remaining_accounts):
-    if not remaining_accounts or limit <= 0:
-        return {'success': 0, 'failed': 0}
-    
-    accounts_to_use = remaining_accounts[:min(limit, len(remaining_accounts))]
-    protobuf_message = create_protobuf_message(target_uid, server_name)
-    encrypted_uid = encrypt_message(protobuf_message)
-    
-    semaphore = asyncio.Semaphore(30)
-    tasks = []
-    for acc in accounts_to_use:
-        tasks.append(send_single_like(target_uid, encrypted_uid, acc, url, semaphore))
-    
-    results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    successful = 0
-    failed = 0
-    for r in results:
-        if isinstance(r, dict) and r.get('status') == 'success':
-            successful += 1
-            mark_as_liked(target_uid, r['uid'])
-        else:
-            failed += 1
-    
-    return {'success': successful, 'failed': failed}
-
-async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
-    async with semaphore:
-        try:
-            token = await get_valid_token(account['uid'], account['password'])
-            if not token:
-                return {'status': 'failed', 'uid': account['uid']}
-            success, _ = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
-            if success:
-                return {'status': 'success', 'uid': account['uid']}
-            else:
-                return {'status': 'failed', 'uid': account['uid']}
-        except:
-            return {'status': 'failed', 'uid': account['uid']}
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -503,22 +482,25 @@ async def auto_like_daily():
             if wait_seconds > 0:
                 print(f"Next auto-like at: {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST")
                 await asyncio.sleep(wait_seconds)
+            
             print(f"Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
             accounts = load_accounts("IND")
             if not accounts:
                 print("No accounts available")
                 await asyncio.sleep(60)
                 continue
+            
             for user_uid in auto_like_users:
                 print(f"Processing user: {user_uid}")
-                result = await send_likes_batch(
+                result = await send_likes_until_complete(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
                     50
                 )
                 print(f"Sent {result['success']} likes to {user_uid}")
-                await asyncio.sleep(3)
+                await asyncio.sleep(2)
+            
             print(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
         except Exception as e:
             print(f"Auto-like error: {e}")
@@ -661,7 +643,6 @@ DASHBOARD_HTML = '''
 
         .error-msg { background: rgba(255,0,50,0.1); border: 1px solid #ff0044; color: #ff0044; padding: 15px; border-radius: 12px; margin: 10px 0; text-align: center; }
 
-        /* Like Result Modal */
         .result-modal {
             display: none;
             position: fixed;
@@ -783,7 +764,6 @@ DASHBOARD_HTML = '''
         </div>
     </div>
 
-    <!-- Result Modal -->
     <div class="result-modal" id="resultModal">
         <div class="result-box">
             <h2><i class="fas fa-check-circle"></i> Like Result</h2>
@@ -1014,7 +994,6 @@ DASHBOARD_HTML = '''
                 });
         }
 
-        // Click outside modal to close
         document.getElementById('resultModal').addEventListener('click', function(e) {
             if (e.target === this) closeResult();
         });
@@ -1142,7 +1121,7 @@ def send_likes_manual():
     before_likes = user_info_before.get('likes', 0) if user_info_before else 0
     before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
 
-    # Send likes - keep trying until we get the requested count or exhaust all accounts
+    # Send likes
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -1150,7 +1129,7 @@ def send_likes_manual():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
     
-    result = asyncio.run(send_likes_batch(uid, server_name, like_url, count))
+    result = asyncio.run(send_likes_until_complete(uid, server_name, like_url, count))
     likes_sent = result['success']
 
     # Get user info AFTER
@@ -1178,7 +1157,8 @@ def send_likes_manual():
         'verified_added': after_likes - before_likes,
         'skipped': result.get('skipped', 0),
         'failed': result.get('failed', 0),
-        'accounts_used': result.get('accounts_used', 0)
+        'accounts_used': result.get('accounts_used', 0),
+        'exhausted': result.get('exhausted', False)
     })
 
 @app.route('/force-auto-run', methods=['POST'])
@@ -1196,14 +1176,14 @@ async def auto_like_daily_once():
         return
     for user_uid in auto_like_users:
         print(f"Processing {user_uid}")
-        result = await send_likes_batch(
+        result = await send_likes_until_complete(
             user_uid,
             "IND",
             "https://client.ind.freefiremobile.com/LikeProfile",
             50
         )
         print(f"Sent {result['success']} likes to {user_uid}")
-        await asyncio.sleep(3)
+        await asyncio.sleep(2)
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
@@ -1261,7 +1241,7 @@ def handle_requests():
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
     limit = requested_likes if requested_likes and requested_likes > 0 else 50
-    result = asyncio.run(send_likes_batch(uid, server_name, like_url, limit))
+    result = asyncio.run(send_likes_until_complete(uid, server_name, like_url, limit))
     success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -1323,7 +1303,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – 20 Likes Now Complete Exactly")
+print("✅ Auto-Like System Started – 20 Likes Complete, Auto-Like 4:02 AM")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
