@@ -465,13 +465,7 @@ WEBSITE_HTML = '''
     <title>Auto-Like System</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: #0a0e1a; 
-            color: #ffffff; 
-            min-height: 100vh;
-            overflow-x: hidden;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; overflow-x: hidden; }
         
         #loading-screen {
             position: fixed;
@@ -496,29 +490,12 @@ WEBSITE_HTML = '''
         }
         @keyframes spin { to { transform: rotate(360deg); } }
         
-        .loading-text { 
-            margin-top: 25px; 
-            color: #8899bb; 
-            font-size: 1.1em;
-            letter-spacing: 2px;
-        }
+        .loading-text { margin-top: 25px; color: #8899bb; font-size: 1.1em; letter-spacing: 2px; }
         .loading-text span { color: #ff1744; animation: blink 1s infinite; }
         @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
         
-        .loading-bar {
-            width: 200px;
-            height: 2px;
-            background: #1a2240;
-            margin-top: 15px;
-            border-radius: 2px;
-            overflow: hidden;
-        }
-        .loading-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, #ff1744, #ff6b6b);
-            width: 100%;
-            animation: fill 3s ease forwards;
-        }
+        .loading-bar { width: 200px; height: 2px; background: #1a2240; margin-top: 15px; border-radius: 2px; overflow: hidden; }
+        .loading-bar-fill { height: 100%; background: linear-gradient(90deg, #ff1744, #ff6b6b); width: 100%; animation: fill 2.5s ease forwards; }
         @keyframes fill { 0% { width: 0%; } 100% { width: 100%; } }
         
         #ddos-overlay {
@@ -555,11 +532,7 @@ WEBSITE_HTML = '''
             border-radius: 16px;
             z-index: -1;
         }
-        @keyframes borderGlow {
-            0% { background-position: 0% 50%; }
-            50% { background-position: 100% 50%; }
-            100% { background-position: 0% 50%; }
-        }
+        @keyframes borderGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
         
         .ddos-icon { font-size: 3.5em; color: #ff1744; margin-bottom: 15px; }
         .ddos-box h2 { color: #ff1744; font-size: 1.8em; margin-bottom: 8px; }
@@ -606,8 +579,8 @@ WEBSITE_HTML = '''
         .admin-btn:hover { background: #2a3a5a; }
         .admin-error { color: #ff1744; font-size: 0.85em; margin-top: 10px; display: none; }
         
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .container.hidden { display: none; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; display: none; }
+        .container.visible { display: block; }
         
         .header {
             background: linear-gradient(135deg, #1a237e, #283593);
@@ -845,15 +818,15 @@ WEBSITE_HTML = '''
         <button class="verify-btn" onclick="showAdmin()">&#10003; Click to Verify</button>
         
         <div class="admin-section" id="admin-section">
-            <input type="text" id="admin-user" placeholder="Username" />
-            <input type="password" id="admin-pass" placeholder="Password" />
+            <input type="text" id="admin-user" placeholder="Username" value="admin" />
+            <input type="password" id="admin-pass" placeholder="Password" value="admin123" />
             <button class="admin-btn" onclick="verifyAdmin()">&#128274; Login</button>
             <div class="admin-error" id="admin-error">Invalid credentials!</div>
         </div>
     </div>
 </div>
 
-<div class="container hidden" id="main-dashboard">
+<div class="container" id="main-dashboard">
     <div class="header">
         <div class="header-top">
             <div>
@@ -903,10 +876,10 @@ WEBSITE_HTML = '''
 </div>
 
 <script>
-    // Hide loading screen after 3 seconds
+    // Hide loading screen after 2.5 seconds
     setTimeout(function() {
         document.getElementById('loading-screen').classList.add('hidden');
-    }, 3000);
+    }, 2500);
 
     function showAdmin() {
         document.getElementById('admin-section').style.display = 'block';
@@ -918,7 +891,7 @@ WEBSITE_HTML = '''
         
         if (user === 'admin' && pass === 'admin123') {
             document.getElementById('ddos-overlay').classList.add('hidden');
-            document.getElementById('main-dashboard').classList.remove('hidden');
+            document.getElementById('main-dashboard').style.display = 'block';
             loadData();
             setInterval(loadData, 3000);
             setInterval(checkStatus, 10000);
