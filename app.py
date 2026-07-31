@@ -20,7 +20,6 @@ import jwt
 from datetime import timedelta
 import pickle
 import threading
-import hashlib
 
 TOKEN_CACHE = {}
 app = Flask(__name__)
@@ -45,8 +44,8 @@ RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
 
-ADMIN_USER = "admin"
-ADMIN_PASS = "admin123"
+ADMIN_USER = "ADISULE"
+ADMIN_PASS = "HEXMODS"
 
 def load_users():
     global auto_like_users, user_stats
@@ -326,12 +325,10 @@ async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
         return False, "error"
 
 async def send_likes_ultra_fast(target_uid, server_name, url, limit):
-    """Ultra fast - sends all likes simultaneously"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0}
     
-    # Filter accounts
     fresh_accounts = []
     skipped_24hr = 0
     
@@ -344,13 +341,11 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
     if not fresh_accounts:
         return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped_24hr}
     
-    # Use all fresh accounts
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
     
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
     
-    # Send ALL at once - ultra fast
     tasks = []
     for acc in accounts_to_use:
         tasks.append(send_single_ultra_fast(target_uid, encrypted_uid, acc, url))
@@ -367,7 +362,6 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
         else:
             failed += 1
     
-    # Update user stats
     if successful > 0:
         user_info = await get_user_info(target_uid, server_name)
         username = user_info.get('name', '') if user_info else ''
@@ -398,13 +392,12 @@ async def send_single_ultra_fast(target_uid, encrypted_uid, account, url):
         return {'status': 'failed', 'uid': account['uid']}
 
 async def check_all_accounts_ultra_fast():
-    """Ultra fast account status check - all at once"""
     accounts = load_accounts("IND")
     if not accounts:
         return
     
     tasks = []
-    for acc in accounts[:50]:  # Check first 50 at once
+    for acc in accounts[:50]:
         tasks.append(check_single_account(acc))
     
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -466,7 +459,6 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# HTML WEBSITE - PROFESSIONAL WITH ICONS
 WEBSITE_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -479,7 +471,7 @@ WEBSITE_HTML = '''
         body { 
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
             background: #0a0e1a; 
-            color: #fff; 
+            color: #ffffff; 
             min-height: 100vh;
             overflow-x: hidden;
         }
@@ -529,7 +521,7 @@ WEBSITE_HTML = '''
             height: 100%;
             background: linear-gradient(90deg, #ff1744, #ff6b6b);
             width: 0%;
-            animation: fill 5s ease forwards;
+            animation: fill 4s ease forwards;
         }
         @keyframes fill { 0% { width: 0%; } 100% { width: 100%; } }
         
@@ -597,11 +589,11 @@ WEBSITE_HTML = '''
         .verify-btn:hover { transform: scale(1.05); box-shadow: 0 0 40px rgba(255, 23, 68, 0.3); }
         .verify-btn:active { transform: scale(0.95); }
         
-        /* ADMIN LOGIN */
         .admin-section {
             margin-top: 20px;
             padding-top: 20px;
             border-top: 1px solid #1a2240;
+            display: none;
         }
         .admin-section input {
             background: #0a0e1a;
@@ -835,7 +827,7 @@ WEBSITE_HTML = '''
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
         
         .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
-        .icon { font-size: 1.2em; }
+        .icon { font-size: 1.2em; margin-right: 6px; }
         
         @media (max-width: 768px) {
             .status-grid { grid-template-columns: repeat(2, 1fr); }
@@ -853,11 +845,11 @@ WEBSITE_HTML = '''
 <!-- LOADING SCREEN -->
 <div id="loading-screen">
     <div class="loader-ring"></div>
-    <div class="loading-text">Loading <span>•••</span></div>
+    <div class="loading-text">Loading <span>...</span></div>
     <div class="loading-bar"><div class="loading-bar-fill"></div></div>
 </div>
 
-<!-- DDOS PROTECTION + ADMIN -->
+<!-- DDOS PROTECTION -->
 <div id="ddos-overlay">
     <div class="ddos-box">
         <div class="ddos-icon">&#9888;</div>
@@ -865,7 +857,7 @@ WEBSITE_HTML = '''
         <p>Click the button below to verify access to the dashboard.</p>
         <button class="verify-btn" onclick="showAdmin()">&#10003; Click to Verify</button>
         
-        <div class="admin-section">
+        <div class="admin-section" id="admin-section">
             <input type="text" id="admin-user" placeholder="Username" value="admin" />
             <input type="password" id="admin-pass" placeholder="Password" value="admin123" />
             <button class="admin-btn" onclick="verifyAdmin()">&#128274; Login</button>
@@ -926,9 +918,16 @@ WEBSITE_HTML = '''
 
 <script>
     let isAdmin = false;
+    let loadingDone = false;
+
+    // Loading screen auto-hide after 4 seconds
+    setTimeout(function() {
+        document.getElementById('loading-screen').classList.add('hidden');
+        loadingDone = true;
+    }, 4000);
 
     function showAdmin() {
-        document.querySelector('.admin-section').style.display = 'block';
+        document.getElementById('admin-section').style.display = 'block';
     }
 
     function verifyAdmin() {
@@ -939,13 +938,12 @@ WEBSITE_HTML = '''
             isAdmin = true;
             document.getElementById('ddos-overlay').classList.add('hidden');
             document.getElementById('main-dashboard').classList.add('visible');
-            document.getElementById('loading-screen').classList.add('hidden');
             loadData();
             setInterval(loadData, 3000);
             setInterval(checkStatus, 10000);
         } else {
             document.getElementById('admin-error').style.display = 'block';
-            setTimeout(() => {
+            setTimeout(function() {
                 document.getElementById('admin-error').style.display = 'none';
             }, 3000);
         }
@@ -953,8 +951,8 @@ WEBSITE_HTML = '''
 
     function loadData() {
         fetch('/api/dashboard-data')
-            .then(res => res.json())
-            .then(data => {
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
                 document.getElementById('total-accounts').textContent = data.total_accounts || 0;
                 document.getElementById('working-count').textContent = data.working_count || 0;
                 document.getElementById('timeout-count').textContent = data.timeout_count || 0;
@@ -963,50 +961,51 @@ WEBSITE_HTML = '''
                 document.getElementById('auto-users').textContent = data.auto_users || 0;
                 document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
 
-                let userHtml = '';
+                var userHtml = '';
                 if (data.users && data.users.length > 0) {
-                    data.users.forEach(user => {
-                        const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
-                        userHtml += `<div class="user-item">
-                            <span class="uid">${user}</span>
-                            <span class="stats">Total: <span>${s.total_likes||0}</span> | Today: <span>${s.today_likes||0}</span></span>
-                            <button class="del-btn" onclick="deleteUser('${user}')">&#10005;</button>
-                        </div>`;
+                    data.users.forEach(function(user) {
+                        var s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
+                        userHtml += '<div class="user-item">' +
+                            '<span class="uid">' + user + '</span>' +
+                            '<span class="stats">Total: <span>' + (s.total_likes||0) + '</span> | Today: <span>' + (s.today_likes||0) + '</span></span>' +
+                            '<button class="del-btn" onclick="deleteUser(\'' + user + '\')">&#10005;</button>' +
+                        '</div>';
                     });
                 } else {
                     userHtml = '<div class="note">No users added yet</div>';
                 }
                 document.getElementById('user-list').innerHTML = userHtml;
 
-                let tableHtml = '';
+                var tableHtml = '';
                 if (data.accounts && data.accounts.length > 0) {
-                    data.accounts.forEach(acc => {
-                        const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
-                        tableHtml += `<tr>
-                            <td><strong>${acc.uid}</strong></td>
-                            <td><span class="badge badge-${cls}">${acc.status}</span></td>
-                            <td>${acc.last_check || 'Never'}</td>
-                            <td>${acc.reset_time || 'N/A'}</td>
-                            <td>${acc.last_error || 'None'}</td>
-                        </tr>`;
+                    data.accounts.forEach(function(acc) {
+                        var cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
+                        tableHtml += '<tr>' +
+                            '<td><strong>' + acc.uid + '</strong></td>' +
+                            '<td><span class="badge badge-' + cls + '">' + acc.status + '</span></td>' +
+                            '<td>' + (acc.last_check || 'Never') + '</td>' +
+                            '<td>' + (acc.reset_time || 'N/A') + '</td>' +
+                            '<td>' + (acc.last_error || 'None') + '</td>' +
+                        '</tr>';
                     });
                 } else {
                     tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
                 }
                 document.getElementById('account-table').innerHTML = tableHtml;
 
-                let statsHtml = '';
+                var statsHtml = '';
                 if (data.user_stats && Object.keys(data.user_stats).length > 0) {
-                    Object.keys(data.user_stats).forEach(uid => {
-                        const s = data.user_stats[uid];
-                        statsHtml += `<div class="user-stat-card">
-                            <div class="uid">UID: ${uid}</div>
-                            <div class="name">Name: ${s.username || 'Unknown'}</div>
-                            <div class="row"><span>Total Likes</span><span class="val">${s.total_likes||0}</span></div>
-                            <div class="row"><span>Today's Likes</span><span class="val">${s.today_likes||0}</span></div>
-                            <div class="row"><span>Current Likes</span><span class="val">${s.current_likes||0}</span></div>
-                            <div class="last">Last: ${s.last_like || 'Never'}</div>
-                        </div>`;
+                    var keys = Object.keys(data.user_stats);
+                    keys.forEach(function(uid) {
+                        var s = data.user_stats[uid];
+                        statsHtml += '<div class="user-stat-card">' +
+                            '<div class="uid">UID: ' + uid + '</div>' +
+                            '<div class="name">Name: ' + (s.username || 'Unknown') + '</div>' +
+                            '<div class="row"><span>Total Likes</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
+                            '<div class="row"><span>Today\'s Likes</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
+                            '<div class="row"><span>Current Likes</span><span class="val">' + (s.current_likes||0) + '</span></div>' +
+                            '<div class="last">Last: ' + (s.last_like || 'Never') + '</div>' +
+                        '</div>';
                     });
                 } else {
                     statsHtml = '<div class="note">No stats yet</div>';
@@ -1017,55 +1016,79 @@ WEBSITE_HTML = '''
 
     function checkStatus() {
         fetch('/api/check-status')
-            .then(res => res.json())
-            .then(data => {
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
                 console.log('Status check started');
                 setTimeout(loadData, 3000);
             });
     }
 
     function addUser() {
-        const uid = document.getElementById('user-uid').value.trim();
+        var uid = document.getElementById('user-uid').value.trim();
         if (!uid) { alert('Enter a UID'); return; }
-        fetch('/add-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) })
-            .then(res => res.json())
-            .then(data => { if (data.success) { loadData(); document.getElementById('user-uid').value = ''; } else { alert(data.message); } });
+        fetch('/add-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.success) {
+                loadData();
+                document.getElementById('user-uid').value = '';
+            } else {
+                alert(data.message);
+            }
+        });
     }
 
     function deleteUser(uid) {
         if (!confirm('Remove this user?')) return;
-        fetch('/delete-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) })
-            .then(res => res.json())
-            .then(data => { if (data.success) loadData(); else alert(data.message); });
+        fetch('/delete-user', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ uid: uid })
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.success) loadData();
+            else alert(data.message);
+        });
     }
 
     function deleteAllUsers() {
         if (!confirm('Delete ALL users?')) return;
-        fetch('/delete-all-users', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
-            .then(res => res.json())
-            .then(data => { if (data.success) loadData(); else alert(data.message); });
+        fetch('/delete-all-users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' }
+        })
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
+            if (data.success) loadData();
+            else alert(data.message);
+        });
     }
 
     function sendInstantLike() {
-        const uid = document.getElementById('user-uid').value.trim();
+        var uid = document.getElementById('user-uid').value.trim();
         if (!uid) { alert('Enter a UID to like'); return; }
-        if (!confirm(`Send likes to ${uid}?`)) return;
+        if (!confirm('Send likes to ' + uid + '?')) return;
         
-        const btn = document.querySelector('.btn-like');
+        var btn = document.querySelector('.btn-like');
         btn.textContent = '⏳ Sending...';
         btn.disabled = true;
         
         fetch('/like-instant', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', likes: 492 })
+            body: JSON.stringify({ uid: uid, server_name: 'IND', key: 'JMLB', likes: 492 })
         })
-        .then(res => res.json())
-        .then(data => {
+        .then(function(res) { return res.json(); })
+        .then(function(data) {
             btn.textContent = '⚡ Send Like';
             btn.disabled = false;
             if (data.success) {
-                alert(`✅ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal Likes: ${data.total_likes}`);
+                alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal Likes: ' + data.total_likes);
                 loadData();
             } else {
                 alert('❌ Error: ' + (data.error || 'Unknown error'));
@@ -1073,14 +1096,12 @@ WEBSITE_HTML = '''
         });
     }
 
-    // Auto-check status every 10 seconds
     setInterval(checkStatus, 10000);
 </script>
 </body>
 </html>
 '''
 
-# Routes
 @app.route('/')
 def dashboard():
     return render_template_string(WEBSITE_HTML)
@@ -1185,10 +1206,6 @@ def like_instant():
     if not uid:
         return jsonify({'success': False, 'error': 'UID required'})
     
-    # Get user info before
-    user_info_before = asyncio.run(get_user_info(uid, server_name))
-    
-    # Send likes ultra fast
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -1198,12 +1215,11 @@ def like_instant():
     
     result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, likes))
     
-    # Get user info after
-    user_info_after = asyncio.run(get_user_info(uid, server_name))
+    user_info = asyncio.run(get_user_info(uid, server_name))
     
-    if user_info_after:
-        username = user_info_after.get('name', 'Unknown')
-        current_likes = user_info_after.get('likes', 0)
+    if user_info:
+        username = user_info.get('name', 'Unknown')
+        current_likes = user_info.get('likes', 0)
         update_user_stats(uid, result['success'], username, current_likes)
     else:
         update_user_stats(uid, result['success'])
@@ -1211,8 +1227,8 @@ def like_instant():
     return jsonify({
         'success': result['success'] > 0,
         'likes_sent': result['success'],
-        'username': user_info_after.get('name', 'Unknown') if user_info_after else 'Unknown',
-        'total_likes': user_info_after.get('likes', 0) if user_info_after else 0,
+        'username': user_info.get('name', 'Unknown') if user_info else 'Unknown',
+        'total_likes': user_info.get('likes', 0) if user_info else 0,
         'skipped': result.get('skipped', 0),
         'failed': result.get('failed', 0),
         'accounts_used': result.get('accounts_used', 0)
@@ -1236,11 +1252,11 @@ def handle_requests():
 
     valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD", "RU"]
     if server_name not in valid_servers:
-        return jsonify({"error": f"Invalid server. Use: {valid_servers}"}), 400
+        return jsonify({"error": "Invalid server. Use: " + str(valid_servers)}), 400
 
     accounts = load_accounts(server_name)
     if not accounts:
-        return jsonify({"error": f"No accounts for {server_name}"}), 500
+        return jsonify({"error": "No accounts for " + server_name}), 500
     
     today_midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     count, last_reset = tracker[client_ip]
@@ -1250,7 +1266,7 @@ def handle_requests():
         count = 0
 
     if count >= KEY_LIMIT:
-        return jsonify({"error": "Daily limit reached", "remains": f"(0/{KEY_LIMIT})"}), 429
+        return jsonify({"error": "Daily limit reached", "remains": "(0/" + str(KEY_LIMIT) + ")"}), 429
     
     check_token = None
     for account in accounts[:5]:
@@ -1304,7 +1320,7 @@ def handle_requests():
             "PlayerNickname": player_name,
             "UID": player_id,
             "status": status,
-            "remains": f"({KEY_LIMIT - count}/{KEY_LIMIT})",
+            "remains": "(" + str(KEY_LIMIT - count) + "/" + str(KEY_LIMIT) + ")",
             "total_accounts": len(accounts),
             "limit_requested": limit,
             "skipped_24hr": result.get('skipped', 0),
@@ -1336,7 +1352,6 @@ def health_check():
         "users": len(auto_like_users)
     })
 
-# Background Auto-Like Task
 async def auto_like_daily():
     print("Auto-like scheduler started")
     while True:
@@ -1349,13 +1364,13 @@ async def auto_like_daily():
             
             wait_seconds = (target_time - now).total_seconds()
             if wait_seconds > 0:
-                print(f"Next auto-like at: {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST")
+                print("Next auto-like at: " + target_time.strftime('%Y-%m-%d %H:%M:%S') + " IST")
                 await asyncio.sleep(wait_seconds)
             
-            print(f"Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+            print("Starting auto-like at " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + " IST")
             
             for user_uid in auto_like_users:
-                print(f"Processing user: {user_uid}")
+                print("Processing user: " + user_uid)
                 
                 result = await send_likes_ultra_fast(
                     user_uid,
@@ -1364,38 +1379,34 @@ async def auto_like_daily():
                     492
                 )
                 
-                print(f"Sent {result['success']} likes to {user_uid}")
+                print("Sent " + str(result['success']) + " likes to " + user_uid)
                 await asyncio.sleep(2)
             
-            print(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+            print("Auto-like cycle complete at " + datetime.now().strftime('%Y-%m-%d %H:%M:%S') + " IST")
             
         except Exception as e:
-            print(f"Auto-like error: {e}")
+            print("Auto-like error: " + str(e))
             await asyncio.sleep(60)
 
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# Load data
 load_liked_data()
 load_account_status()
 load_users()
 
-# Start background threads
 reset_thread = threading.Thread(target=daily_reset_task, daemon=True)
 reset_thread.start()
 
 auto_thread = threading.Thread(target=start_auto_like, daemon=True)
 auto_thread.start()
 
-# Initial ultra-fast check
 threading.Thread(target=run_ultra_fast_check).start()
 
 print("Ultra-Fast Auto-Like System Started!")
-print(f"Users loaded: {len(auto_like_users)}")
-print(f"Accounts loaded: {len(load_accounts('IND'))}")
+print("Users loaded: " + str(len(auto_like_users)))
+print("Accounts loaded: " + str(len(load_accounts("IND"))))
 print("Auto-reset at 4:00 AM IST")
-print("Ultra-fast checking enabled - 50 accounts at once!")
 
 if __name__ == '__main__':
     import os
