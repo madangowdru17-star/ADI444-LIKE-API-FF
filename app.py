@@ -44,9 +44,6 @@ RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
 
-ADMIN_USER = "ADISULE"
-ADMIN_PASS = "HEXMODS"
-
 def load_users():
     global auto_like_users, user_stats
     try:
@@ -476,7 +473,6 @@ WEBSITE_HTML = '''
             overflow-x: hidden;
         }
         
-        /* LOADING SCREEN */
         #loading-screen {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -520,12 +516,11 @@ WEBSITE_HTML = '''
         .loading-bar-fill {
             height: 100%;
             background: linear-gradient(90deg, #ff1744, #ff6b6b);
-            width: 0%;
-            animation: fill 4s ease forwards;
+            width: 100%;
+            animation: fill 3s ease forwards;
         }
         @keyframes fill { 0% { width: 0%; } 100% { width: 100%; } }
         
-        /* DDOS PROTECTION */
         #ddos-overlay {
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
@@ -566,11 +561,7 @@ WEBSITE_HTML = '''
             100% { background-position: 0% 50%; }
         }
         
-        .ddos-icon {
-            font-size: 3.5em;
-            color: #ff1744;
-            margin-bottom: 15px;
-        }
+        .ddos-icon { font-size: 3.5em; color: #ff1744; margin-bottom: 15px; }
         .ddos-box h2 { color: #ff1744; font-size: 1.8em; margin-bottom: 8px; }
         .ddos-box p { color: #8899bb; margin-bottom: 25px; font-size: 0.95em; }
         
@@ -593,7 +584,6 @@ WEBSITE_HTML = '''
             margin-top: 20px;
             padding-top: 20px;
             border-top: 1px solid #1a2240;
-            display: none;
         }
         .admin-section input {
             background: #0a0e1a;
@@ -616,9 +606,8 @@ WEBSITE_HTML = '''
         .admin-btn:hover { background: #2a3a5a; }
         .admin-error { color: #ff1744; font-size: 0.85em; margin-top: 10px; display: none; }
         
-        /* MAIN DASHBOARD */
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; display: none; }
-        .container.visible { display: block; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .container.hidden { display: none; }
         
         .header {
             background: linear-gradient(135deg, #1a237e, #283593);
@@ -842,14 +831,12 @@ WEBSITE_HTML = '''
 </head>
 <body>
 
-<!-- LOADING SCREEN -->
 <div id="loading-screen">
     <div class="loader-ring"></div>
     <div class="loading-text">Loading <span>...</span></div>
     <div class="loading-bar"><div class="loading-bar-fill"></div></div>
 </div>
 
-<!-- DDOS PROTECTION -->
 <div id="ddos-overlay">
     <div class="ddos-box">
         <div class="ddos-icon">&#9888;</div>
@@ -858,16 +845,15 @@ WEBSITE_HTML = '''
         <button class="verify-btn" onclick="showAdmin()">&#10003; Click to Verify</button>
         
         <div class="admin-section" id="admin-section">
-            <input type="text" id="admin-user" placeholder="Username" value="admin" />
-            <input type="password" id="admin-pass" placeholder="Password" value="admin123" />
+            <input type="text" id="admin-user" placeholder="Username" />
+            <input type="password" id="admin-pass" placeholder="Password" />
             <button class="admin-btn" onclick="verifyAdmin()">&#128274; Login</button>
             <div class="admin-error" id="admin-error">Invalid credentials!</div>
         </div>
     </div>
 </div>
 
-<!-- MAIN DASHBOARD -->
-<div class="container" id="main-dashboard">
+<div class="container hidden" id="main-dashboard">
     <div class="header">
         <div class="header-top">
             <div>
@@ -917,27 +903,22 @@ WEBSITE_HTML = '''
 </div>
 
 <script>
-    let isAdmin = false;
-    let loadingDone = false;
-
-    // Loading screen auto-hide after 4 seconds
+    // Hide loading screen after 3 seconds
     setTimeout(function() {
         document.getElementById('loading-screen').classList.add('hidden');
-        loadingDone = true;
-    }, 4000);
+    }, 3000);
 
     function showAdmin() {
         document.getElementById('admin-section').style.display = 'block';
     }
 
     function verifyAdmin() {
-        const user = document.getElementById('admin-user').value;
-        const pass = document.getElementById('admin-pass').value;
+        var user = document.getElementById('admin-user').value;
+        var pass = document.getElementById('admin-pass').value;
         
         if (user === 'admin' && pass === 'admin123') {
-            isAdmin = true;
             document.getElementById('ddos-overlay').classList.add('hidden');
-            document.getElementById('main-dashboard').classList.add('visible');
+            document.getElementById('main-dashboard').classList.remove('hidden');
             loadData();
             setInterval(loadData, 3000);
             setInterval(checkStatus, 10000);
@@ -1096,6 +1077,7 @@ WEBSITE_HTML = '''
         });
     }
 
+    // Auto check status every 10 seconds
     setInterval(checkStatus, 10000);
 </script>
 </body>
