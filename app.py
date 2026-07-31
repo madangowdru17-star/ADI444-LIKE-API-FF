@@ -37,11 +37,12 @@ account_status = {}
 USERS_FILE = "users.pkl"
 auto_like_users = []
 user_stats = {}
-like_history = []  # Store history of likes
+like_history = []
 
 RESET_HOUR = 4
 RESET_MINUTE = 2
 RESET_SECOND = 0
+AUTO_LIKE_LIMIT = 100  # Default auto-like limit
 
 RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
 
@@ -77,7 +78,7 @@ def save_users():
         data = {
             'users': auto_like_users,
             'stats': user_stats,
-            'history': like_history[-100:]  # Keep last 100 entries
+            'history': like_history[-100:]
         }
         with open(USERS_FILE, 'wb') as f:
             pickle.dump(data, f)
@@ -501,7 +502,7 @@ async def auto_like_daily():
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
-                    50
+                    AUTO_LIKE_LIMIT
                 )
                 print(f"Sent {result['success']} likes to {user_uid}")
                 await asyncio.sleep(2)
@@ -514,7 +515,7 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# ---------- HTML Dashboard with Sidebar ----------
+# ---------- HTML Dashboard ----------
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -530,51 +531,7 @@ DASHBOARD_HTML = '''
             background: #0a0e1a;
             color: #fff;
             min-height: 100vh;
-            display: flex;
-        }
-        
-        /* SIDEBAR */
-        .sidebar {
-            width: 220px;
-            background: #0d1225;
-            border-right: 1px solid rgba(0,255,255,0.1);
-            min-height: 100vh;
-            padding: 20px 0;
-            position: fixed;
-            top: 0; left: 0;
-            z-index: 100;
-        }
-        .sidebar .logo {
-            text-align: center;
-            padding: 0 20px 20px;
-            border-bottom: 1px solid rgba(0,255,255,0.05);
-            margin-bottom: 15px;
-        }
-        .sidebar .logo h2 { color: #00ffff; font-size: 1.2em; }
-        .sidebar .logo small { color: #8899bb; font-size: 0.7em; }
-        .sidebar .nav-item {
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            padding: 12px 25px;
-            color: #8899bb;
-            text-decoration: none;
-            transition: 0.3s;
-            cursor: pointer;
-            border-left: 3px solid transparent;
-        }
-        .sidebar .nav-item:hover, .sidebar .nav-item.active {
-            color: #00ffff;
-            background: rgba(0,255,255,0.05);
-            border-left-color: #00ffff;
-        }
-        .sidebar .nav-item i { width: 20px; text-align: center; }
-        
-        /* MAIN CONTENT */
-        .main {
-            margin-left: 220px;
             padding: 20px;
-            flex: 1;
         }
         .container { max-width: 1400px; margin: 0 auto; }
         
@@ -684,8 +641,12 @@ DASHBOARD_HTML = '''
         .result-box .row .value { color: #00ff66; font-weight: bold; }
         .result-box .close-btn { margin-top: 15px; padding: 10px 30px; background: #00ffff; color: #000; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
         
-        .section { display: none; }
-        .section.active { display: block; }
+        .user-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .user-item { background: rgba(0,255,255,0.05); padding: 8px 14px; border-radius: 20px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(0,255,255,0.1); margin: 4px; }
+        .user-item .uid { font-weight: bold; color: #00ffff; }
+        .user-item .stats { color: #8899bb; font-size: 0.8em; }
+        .user-item .stats span { color: #00ff66; font-weight: bold; }
+        .user-item .del-btn { background: none; border: none; color: #ff0044; cursor: pointer; padding: 0 5px; }
         
         .history-item { padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
         .history-item .uid { color: #00ffff; font-weight: bold; }
@@ -693,161 +654,79 @@ DASHBOARD_HTML = '''
         .history-item .likes { color: #00ff66; font-weight: bold; }
         .history-item .time { color: #8899bb; font-size: 0.8em; }
         
-        @media (max-width: 768px) {
-            .sidebar { width: 60px; }
-            .sidebar .logo h2, .sidebar .logo small { display: none; }
-            .sidebar .nav-item span { display: none; }
-            .sidebar .nav-item { padding: 12px 18px; }
-            .main { margin-left: 60px; }
-            .status-grid { grid-template-columns: repeat(3, 1fr); }
-        }
-        @media (max-width: 480px) {
-            .status-grid { grid-template-columns: 1fr 1fr; }
-            .sidebar { width: 50px; }
-            .main { margin-left: 50px; padding: 10px; }
-            .sidebar .nav-item { padding: 10px 14px; }
-        }
+        @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(3, 1fr); } }
+        @media (max-width: 480px) { .status-grid { grid-template-columns: 1fr 1fr; } }
     </style>
 </head>
 <body>
-    <!-- SIDEBAR -->
-    <div class="sidebar">
-        <div class="logo">
-            <h2>⚡ AL</h2>
-            <small>Auto-Like</small>
+    <div class="container">
+        <!-- Header -->
+        <div class="header glass">
+            <div class="header-top">
+                <div>
+                    <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
+                    <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:02 AM IST</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
+                    <span><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                    <button class="btn" onclick="location.reload()"><i class="fas fa-sync"></i></button>
+                </div>
+            </div>
         </div>
-        <div class="nav-item active" onclick="showSection('dashboard')"><i class="fas fa-home"></i> <span>Dashboard</span></div>
-        <div class="nav-item" onclick="showSection('likes20')"><i class="fas fa-arrow-right"></i> <span>20 Likes</span></div>
-        <div class="nav-item" onclick="showSection('unlimited')"><i class="fas fa-infinity"></i> <span>Unlimited</span></div>
-        <div class="nav-item" onclick="showSection('auto')"><i class="fas fa-clock"></i> <span>Auto Like</span></div>
-        <div class="nav-item" onclick="showSection('verify')"><i class="fas fa-check-double"></i> <span>Verify</span></div>
-        <div class="nav-item" onclick="showSection('history')"><i class="fas fa-history"></i> <span>History</span></div>
-        <div class="nav-item" onclick="showSection('accounts')"><i class="fas fa-users"></i> <span>Accounts</span></div>
-        <div class="nav-item" onclick="showSection('stats')"><i class="fas fa-chart-bar"></i> <span>Statistics</span></div>
-        <div class="nav-item" onclick="showSection('logs')"><i class="fas fa-terminal"></i> <span>Logs</span></div>
-    </div>
-    
-    <!-- MAIN -->
-    <div class="main">
-        <div class="container">
-            <!-- Header -->
-            <div class="header glass">
-                <div class="header-top">
-                    <div>
-                        <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
-                        <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:02 AM IST</div>
-                    </div>
-                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                        <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
-                        <span><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                        <button class="btn" onclick="location.reload()"><i class="fas fa-sync"></i></button>
-                    </div>
-                </div>
+        
+        <!-- Status Row -->
+        <div class="status-row">
+            <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
+            <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
+            <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
+        </div>
+        
+        <!-- Stats -->
+        <div class="status-grid">
+            <div class="status-card glass"><div class="num" style="color:#4488ff;" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
+            <div class="status-card glass"><div class="num" style="color:#00ff66;" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
+            <div class="status-card glass"><div class="num" style="color:#ff0044;" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
+            <div class="status-card glass"><div class="num" style="color:#ff66ff;" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
+            <div class="status-card glass"><div class="num" style="color:#ffcc00;" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
+            <div class="status-card glass"><div class="num" style="color:#00ffff;" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
+        </div>
+        
+        <!-- Unlimited Likes -->
+        <div class="panel glass">
+            <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
+            <div class="input-group">
+                <input type="number" id="target-uid" placeholder="Enter Free Fire UID" />
+                <button class="btn btn-primary" onclick="sendUnlimitedLikes()"><i class="fas fa-infinity"></i> Send All Likes</button>
             </div>
-            
-            <!-- Status Row -->
-            <div class="status-row">
-                <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
-                <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
-                <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
+            <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes from all accounts.</div>
+        </div>
+        
+        <!-- Auto Like Queue -->
+        <div class="panel glass">
+            <h2><i class="fas fa-clock"></i> Auto Like Queue</h2>
+            <div class="input-group">
+                <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
+                <button class="btn btn-warning" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add to Queue</button>
+                <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear Queue</button>
             </div>
-            
-            <!-- Dashboard Section -->
-            <div id="section-dashboard" class="section active">
-                <div class="status-grid">
-                    <div class="status-card glass"><div class="num" style="color:#4488ff;" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
-                    <div class="status-card glass"><div class="num" style="color:#00ff66;" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
-                    <div class="status-card glass"><div class="num" style="color:#ff0044;" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
-                    <div class="status-card glass"><div class="num" style="color:#ff66ff;" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
-                    <div class="status-card glass"><div class="num" style="color:#ffcc00;" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
-                    <div class="status-card glass"><div class="num" style="color:#00ffff;" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
-                </div>
-            </div>
-            
-            <!-- 20 Likes Section -->
-            <div id="section-likes20" class="section">
-                <div class="panel glass">
-                    <h2><i class="fas fa-arrow-right"></i> Send 20 Likes</h2>
-                    <div class="input-group">
-                        <input type="number" id="target-uid20" placeholder="Enter Free Fire UID" />
-                        <button class="btn btn-primary" onclick="sendLikes(20, 'target-uid20')"><i class="fas fa-arrow-right"></i> Send 20 Likes</button>
-                    </div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Sends exactly 20 verified likes to the target UID.</div>
-                </div>
-            </div>
-            
-            <!-- Unlimited Section -->
-            <div id="section-unlimited" class="section">
-                <div class="panel glass">
-                    <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
-                    <div class="input-group">
-                        <input type="number" id="target-uid-unlimited" placeholder="Enter Free Fire UID" />
-                        <button class="btn btn-success" onclick="sendLikes(492, 'target-uid-unlimited')"><i class="fas fa-infinity"></i> Send All Likes</button>
-                    </div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes from all accounts.</div>
-                </div>
-            </div>
-            
-            <!-- Auto Like Section -->
-            <div id="section-auto" class="section">
-                <div class="panel glass">
-                    <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like at 4:02 AM IST. Add UIDs to the queue.</p>
-                    <div class="input-group">
-                        <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
-                        <button class="btn btn-warning" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add to Queue</button>
-                        <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear Queue</button>
-                    </div>
-                    <div class="user-list" id="auto-user-list" style="margin-top:12px;"></div>
-                </div>
-            </div>
-            
-            <!-- Verify Section -->
-            <div id="section-verify" class="section">
-                <div class="panel glass">
-                    <h2><i class="fas fa-check-double"></i> Verify Likes</h2>
-                    <div class="input-group">
-                        <input type="number" id="target-uid-verify" placeholder="Enter Free Fire UID" />
-                        <button class="btn btn-primary" onclick="verifyLikes()"><i class="fas fa-check-double"></i> Verify</button>
-                    </div>
-                    <div id="verify-result" style="margin-top:15px;"></div>
-                </div>
-            </div>
-            
-            <!-- History Section -->
-            <div id="section-history" class="section">
-                <div class="panel glass">
-                    <h2><i class="fas fa-history"></i> Like History</h2>
-                    <div id="history-list"></div>
-                </div>
-            </div>
-            
-            <!-- Accounts Section -->
-            <div id="section-accounts" class="section">
-                <div class="section-title"><i class="fas fa-users"></i> Account Status <span class="live-dot"></span></div>
-                <div class="table-wrap glass" style="padding:0; overflow:hidden;">
-                    <table>
-                        <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
-                        <tbody id="account-table"></tbody>
-                    </table>
-                </div>
-            </div>
-            
-            <!-- Statistics Section -->
-            <div id="section-stats" class="section">
-                <div class="panel glass">
-                    <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
-                    <div id="stats-content"></div>
-                </div>
-            </div>
-            
-            <!-- Logs Section -->
-            <div id="section-logs" class="section">
-                <div class="section-title"><i class="fas fa-terminal"></i> Activity Log</div>
-                <div class="log-area glass" style="background:rgba(0,0,0,0.3);">
-                    <div id="log-content"><div class="log-entry"><span class="log-info">System ready.</span></div></div>
-                </div>
-            </div>
+            <div class="user-list" id="auto-user-list"></div>
+            <div class="note"><i class="fas fa-info-circle"></i> Users in queue receive auto-likes daily at 4:02 AM IST.</div>
+        </div>
+        
+        <!-- Account Status -->
+        <div class="section-title"><i class="fas fa-table"></i> Account Status <span class="live-dot"></span></div>
+        <div class="table-wrap glass" style="padding:0; overflow:hidden;">
+            <table>
+                <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
+                <tbody id="account-table"></tbody>
+            </table>
+        </div>
+        
+        <!-- Activity Log -->
+        <div class="section-title"><i class="fas fa-terminal"></i> Activity Log</div>
+        <div class="log-area glass" style="background:rgba(0,0,0,0.3);">
+            <div id="log-content"><div class="log-entry"><span class="log-info">System ready.</span></div></div>
         </div>
     </div>
     
@@ -867,18 +746,6 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        let currentSection = 'dashboard';
-        
-        function showSection(id) {
-            document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
-            document.getElementById('section-' + id).classList.add('active');
-            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-            document.querySelector(`.nav-item[onclick*="${id}"]`).classList.add('active');
-            currentSection = id;
-            if (id === 'history') loadHistory();
-            if (id === 'stats') loadStats();
-        }
-        
         function formatTime(iso) {
             if (!iso) return 'Never';
             try { const d = new Date(iso); return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return iso; }
@@ -900,15 +767,14 @@ DASHBOARD_HTML = '''
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
                     
-                    // Auto queue
                     let userHtml = '';
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(user => {
                             const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
-                            userHtml += `<div class="user-item" style="background:rgba(0,255,255,0.05);padding:8px 14px;border-radius:20px;display:inline-flex;align-items:center;gap:10px;border:1px solid rgba(0,255,255,0.1);margin:4px;">
-                                <span style="font-weight:bold;color:#00ffff;">${user}</span>
-                                <span style="color:#8899bb;font-size:0.8em;">T:<span style="color:#00ff66;font-weight:bold;">${s.total_likes||0}</span> D:<span style="color:#00ff66;font-weight:bold;">${s.today_likes||0}</span></span>
-                                <button onclick="deleteUser('${user}')" style="background:none;border:none;color:#ff0044;cursor:pointer;"><i class="fas fa-times"></i></button>
+                            userHtml += `<div class="user-item">
+                                <span class="uid">${user}</span>
+                                <span class="stats">T:<span>${s.total_likes||0}</span> D:<span>${s.today_likes||0}</span></span>
+                                <button class="del-btn" onclick="deleteUser('${user}')"><i class="fas fa-times"></i></button>
                             </div>`;
                         });
                     } else {
@@ -916,7 +782,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-user-list').innerHTML = userHtml;
                     
-                    // Account table
                     let tableHtml = '';
                     if (data.accounts && data.accounts.length > 0) {
                         data.accounts.forEach(acc => {
@@ -928,7 +793,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('account-table').innerHTML = tableHtml;
                     
-                    // Logs
                     if (data.logs && data.logs.length > 0) {
                         let logHtml = '';
                         data.logs.forEach(log => {
@@ -936,41 +800,6 @@ DASHBOARD_HTML = '''
                         });
                         document.getElementById('log-content').innerHTML = logHtml;
                     }
-                });
-        }
-        
-        function loadHistory() {
-            fetch('/api/history')
-                .then(res => res.json())
-                .then(data => {
-                    let html = '';
-                    if (data.history && data.history.length > 0) {
-                        data.history.forEach(h => {
-                            html += `<div class="history-item">
-                                <span><span class="uid">${h.uid}</span> <span class="name">${h.username || 'Unknown'}</span></span>
-                                <span class="likes">+${h.likes_sent} (${h.verified_added} verified)</span>
-                                <span class="time">${formatTime(h.timestamp)}</span>
-                            </div>`;
-                        });
-                    } else {
-                        html = '<div class="note">No history yet</div>';
-                    }
-                    document.getElementById('history-list').innerHTML = html;
-                });
-        }
-        
-        function loadStats() {
-            fetch('/api/stats')
-                .then(res => res.json())
-                .then(data => {
-                    let html = `
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:#8899bb;">Total Likes Sent</span><span style="color:#00ff66;font-weight:bold;">${data.total_likes_sent}</span></div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:#8899bb;">Total Targets</span><span style="color:#00ff66;font-weight:bold;">${data.total_targets}</span></div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:#8899bb;">Working Accounts</span><span style="color:#00ff66;font-weight:bold;">${data.working_accounts}</span></div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:#8899bb;">Auto Queue Users</span><span style="color:#00ff66;font-weight:bold;">${data.auto_users}</span></div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.05);"><span style="color:#8899bb;">Next Reset</span><span style="color:#ffcc00;font-weight:bold;">${data.next_reset}</span></div>
-                    `;
-                    document.getElementById('stats-content').innerHTML = html;
                 });
         }
         
@@ -985,50 +814,30 @@ DASHBOARD_HTML = '''
         
         function closeResult() { document.getElementById('resultModal').classList.remove('active'); }
         
-        function sendLikes(count, inputId) {
-            const uid = document.getElementById(inputId).value.trim();
+        function sendUnlimitedLikes() {
+            const uid = document.getElementById('target-uid').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
-            if (!confirm(`Send ${count} likes to ${uid}?`)) return;
+            if (!confirm(`Send ALL available likes to ${uid}?`)) return;
             
-            const btn = document.querySelector(`#section-${inputId.includes('20') ? 'likes20' : 'unlimited'} .btn-primary, #section-${inputId.includes('20') ? 'likes20' : 'unlimited'} .btn-success`);
-            if (btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>'; btn.disabled = true; }
+            const btn = document.querySelector('.btn-primary');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+            btn.disabled = true;
             
             fetch('/send-likes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', count })
+                body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', count: 9999 })
             })
             .then(res => res.json())
             .then(data => {
-                if (btn) { btn.innerHTML = '<i class="fas fa-check"></i> Done'; setTimeout(() => { btn.innerHTML = count === 492 ? '<i class="fas fa-infinity"></i> Send All Likes' : '<i class="fas fa-arrow-right"></i> Send 20 Likes'; btn.disabled = false; }, 2000); }
+                btn.innerHTML = '<i class="fas fa-infinity"></i> Send All Likes';
+                btn.disabled = false;
                 if (data.success) {
                     showResult(data);
                     loadData();
-                    if (currentSection === 'history') loadHistory();
                 } else {
                     alert('✗ Error: ' + (data.error || 'Unknown error'));
                 }
-            });
-        }
-        
-        function verifyLikes() {
-            const uid = document.getElementById('target-uid-verify').value.trim();
-            if (!uid) { alert('Enter a UID'); return; }
-            
-            fetch('/verify-likes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB' })
-            })
-            .then(res => res.json())
-            .then(data => {
-                document.getElementById('verify-result').innerHTML = `
-                    <div class="user-stat-card" style="background:rgba(0,255,255,0.03);padding:14px;border-radius:10px;border:1px solid rgba(0,255,255,0.05);">
-                        <div class="uid" style="color:#00ffff;font-weight:bold;font-size:1em;">UID: ${data.uid}</div>
-                        <div class="name" style="color:#fff;font-size:0.9em;">Name: ${data.username}</div>
-                        <div class="row" style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.85em;color:#8899bb;"><span>Total Likes</span><span class="val" style="color:#00ff66;font-weight:bold;">${data.likes}</span></div>
-                    </div>
-                `;
             });
         }
         
@@ -1125,42 +934,6 @@ def dashboard_data():
         'auto_run_message': ''
     })
 
-@app.route('/api/history')
-def get_history():
-    return jsonify({'history': like_history[-50:]})
-
-@app.route('/api/stats')
-def get_stats():
-    total_likes = sum(len(v) for v in liked_cache.values())
-    total_targets = len(liked_cache)
-    working = sum(1 for v in account_status.values() if v.get('status') == 'working')
-    return jsonify({
-        'total_likes_sent': total_likes,
-        'total_targets': total_targets,
-        'working_accounts': working,
-        'auto_users': len(auto_like_users),
-        'next_reset': get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
-    })
-
-@app.route('/verify-likes', methods=['POST'])
-def verify_likes():
-    data = request.get_json()
-    uid = data.get('uid', '').strip()
-    server_name = data.get('server_name', 'IND').upper()
-    key = data.get('key', 'JMLB')
-    if key != "JMLB":
-        return jsonify({'error': 'Invalid key'})
-    if not uid:
-        return jsonify({'error': 'UID required'})
-    user_info = asyncio.run(get_user_info(uid, server_name))
-    if user_info:
-        return jsonify({
-            'uid': user_info['uid'],
-            'username': user_info['name'],
-            'likes': user_info['likes']
-        })
-    return jsonify({'error': 'User not found'})
-
 @app.route('/add-user', methods=['POST'])
 def add_user():
     data = request.get_json()
@@ -1199,7 +972,7 @@ def send_likes_manual():
     uid = data.get('uid', '').strip()
     server_name = data.get('server_name', 'IND').upper()
     key = data.get('key', 'JMLB')
-    count = int(data.get('count', 20))
+    count = int(data.get('count', 9999))
     if key != "JMLB":
         return jsonify({'success': False, 'error': 'Invalid key'})
     if not uid:
@@ -1233,7 +1006,6 @@ def send_likes_manual():
         auto_like_users.append(uid)
         save_users()
 
-    # Add to history
     add_to_history(uid, likes_sent, before_likes, after_likes, username)
 
     return jsonify({
@@ -1304,7 +1076,7 @@ def handle_requests():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
-    limit = requested_likes if requested_likes and requested_likes > 0 else 50
+    limit = requested_likes if requested_likes and requested_likes > 0 else 9999
     result = asyncio.run(send_likes_until_complete(uid, server_name, like_url, limit))
     success_count = result['success']
 
@@ -1325,7 +1097,6 @@ def handle_requests():
         tracker[client_ip][0] += 1
         count += 1
 
-    # Add to history
     add_to_history(uid, success_count, before_like, after_like, player_name)
 
     return jsonify({
@@ -1370,7 +1141,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – New UI with All Buttons")
+print("✅ Auto-Like System Started – Unlimited Likes + Live Account Status")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
