@@ -1,5 +1,5 @@
 # ------------------------------------------------------------
-#   FINAL WORKING VERSION – CYBERPUNK UI + MULTI-SERVER
+#   FINAL WORKING VERSION – CYBERPUNK UI + ACCOUNT STATUS
 #   (Based on your working old code, no login required)
 # ------------------------------------------------------------
 
@@ -44,7 +44,7 @@ auto_like_users = []
 user_stats = {}
 
 RESET_HOUR = 4
-RESET_MINUTE = 0
+RESET_MINUTE = 2  # 4:02 AM for reset (as requested)
 RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
@@ -450,9 +450,9 @@ async def auto_like_daily():
     while True:
         try:
             now = datetime.now()
-            target_time = now.replace(hour=4, minute=0, second=0, microsecond=0)
-            if now.hour >= 4:
-                target_time = target_time + timedelta(days=1)
+            target_time = now.replace(hour=RESET_HOUR, minute=RESET_MINUTE, second=RESET_SECOND, microsecond=0)
+            if now >= target_time:
+                target_time += timedelta(days=1)
             wait_seconds = (target_time - now).total_seconds()
             if wait_seconds > 0:
                 print(f"Next auto-like at: {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST")
@@ -549,8 +549,6 @@ DASHBOARD_HTML = '''
         .btn-like20:hover { background: rgba(0,50,200,0.3); }
         .btn-like220 { background: rgba(200,50,0,0.2); border-color: rgba(200,50,0,0.3); color: #ff6644; }
         .btn-like220:hover { background: rgba(200,50,0,0.3); }
-        .btn-logout { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #8899bb; }
-        .btn-logout:hover { background: rgba(255,255,255,0.1); }
         .btn-auto-run { background: rgba(0,255,100,0.2); border-color: rgba(0,255,100,0.3); color: #00ff66; }
         .btn-auto-run:hover { background: rgba(0,255,100,0.3); }
         .btn-auto-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
@@ -638,7 +636,7 @@ DASHBOARD_HTML = '''
         <div class="header glass">
             <div>
                 <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
-                <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:00 AM IST</div>
+                <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:02 AM IST</div>
             </div>
             <div class="header-actions">
                 <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
@@ -801,6 +799,7 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-queue-stats').innerHTML = statsHtml;
 
+                    // Logs
                     if (data.logs && data.logs.length > 0) {
                         let logHtml = '';
                         data.logs.forEach(log => {
@@ -957,11 +956,8 @@ def dashboard_data():
     total_likes = sum(len(v) for v in liked_cache.values())
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
-    global last_auto_run, auto_run_status, auto_run_message
-    # Dummy values for auto-run info – you can track them if you want
-    last_auto_run = None
-    auto_run_status = "Idle"
-    auto_run_message = ""
+    # For auto-run info, we use global variables (we'll set them in background)
+    # For now, return placeholders
     logs = []
     try:
         with open('logs.txt', 'r') as f:
@@ -984,9 +980,9 @@ def dashboard_data():
         'user_stats': user_stats,
         'accounts': account_list,
         'logs': logs,
-        'last_auto_run': last_auto_run,
-        'auto_run_status': auto_run_status,
-        'auto_run_message': auto_run_message
+        'last_auto_run': None,  # You can track this if needed
+        'auto_run_status': 'Idle',
+        'auto_run_message': ''
     })
 
 @app.route('/api/check-status')
@@ -1067,7 +1063,6 @@ def send_likes_manual():
 
 @app.route('/force-auto-run', methods=['POST'])
 def force_auto_run():
-    # Trigger auto-run manually
     def run_auto():
         asyncio.run(auto_like_daily_once())
     threading.Thread(target=run_auto).start()
@@ -1149,7 +1144,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – Cyberpunk UI + Multi-Server")
+print("✅ Auto-Like System Started – Cyberpunk UI + Account Status")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
