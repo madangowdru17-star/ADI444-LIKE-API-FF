@@ -20,7 +20,6 @@ import jwt
 from datetime import timedelta
 import pickle
 import threading
-import hashlib
 
 TOKEN_CACHE = {}
 app = Flask(__name__)
@@ -37,16 +36,13 @@ account_status = {}
 
 USERS_FILE = "users.pkl"
 auto_like_users = []
-user_stats = {}
+user_stats = {}  # uid -> {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
 
 RESET_HOUR = 4
 RESET_MINUTE = 0
 RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
-
-# Account info cache
-account_info_cache = {}
 
 def load_users():
     global auto_like_users, user_stats
@@ -138,12 +134,16 @@ def mark_as_liked(target_uid, account_uid):
     liked_cache[target_uid].add(account_uid)
     save_liked_data()
 
-def update_user_stats(target_uid, likes_given):
+def update_user_stats(target_uid, likes_given, username="", current_likes=0):
     if target_uid not in user_stats:
-        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None}
+        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
     user_stats[target_uid]['total_likes'] += likes_given
     user_stats[target_uid]['today_likes'] += likes_given
     user_stats[target_uid]['last_like'] = datetime.now().isoformat()
+    if username:
+        user_stats[target_uid]['username'] = username
+    if current_likes > 0:
+        user_stats[target_uid]['current_likes'] = current_likes
     save_users()
 
 def get_next_reset_time():
@@ -208,8 +208,8 @@ def load_accounts(server_name):
     except:
         return []
 
-async def get_account_info(uid, server_name="IND"):
-    """Get account info like name, likes, etc."""
+async def get_user_info(target_uid, server_name="IND"):
+    """Get user info like name, likes count"""
     try:
         accounts = load_accounts(server_name)
         if not accounts:
@@ -224,10 +224,18 @@ async def get_account_info(uid, server_name="IND"):
         if not check_token:
             return None
         
-        encrypted_uid = enc(uid)
+        encrypted_uid = enc(target_uid)
         info = get_player_info(encrypted_uid, server_name, check_token)
         if info:
-            return info
+            try:
+                data = json.loads(MessageToJson(info))
+                return {
+                    'uid': data['AccountInfo'].get('UID', target_uid),
+                    'name': data['AccountInfo'].get('PlayerNickname', 'Unknown'),
+                    'likes': int(data['AccountInfo'].get('Likes', 0))
+                }
+            except:
+                return None
         return None
     except:
         return None
@@ -320,6 +328,22 @@ async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retri
             continue
     return False, "max_retries"
 
+async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
+    async with semaphore:
+        try:
+            token = await get_valid_token(account['uid'], account['password'])
+            if not token:
+                return {'status': 'failed', 'uid': account['uid']}
+            
+            success, _ = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
+            
+            if success:
+                return {'status': 'success', 'uid': account['uid']}
+            else:
+                return {'status': 'failed', 'uid': account['uid']}
+        except:
+            return {'status': 'failed', 'uid': account['uid']}
+
 async def send_likes_batch(target_uid, server_name, url, limit):
     accounts = load_accounts(server_name)
     if not accounts:
@@ -361,7 +385,11 @@ async def send_likes_batch(target_uid, server_name, url, limit):
             failed += 1
     
     if successful > 0:
-        update_user_stats(target_uid, successful)
+        # Get user info
+        user_info = await get_user_info(target_uid, server_name)
+        username = user_info.get('name', '') if user_info else ''
+        current_likes = user_info.get('likes', 0) if user_info else 0
+        update_user_stats(target_uid, successful, username, current_likes)
     
     return {
         'success': successful,
@@ -370,22 +398,6 @@ async def send_likes_batch(target_uid, server_name, url, limit):
         'accounts_used': len(accounts_to_use),
         'skipped': skipped
     }
-
-async def send_single_like(target_uid, encrypted_uid, account, url, semaphore):
-    async with semaphore:
-        try:
-            token = await get_valid_token(account['uid'], account['password'])
-            if not token:
-                return {'status': 'failed', 'uid': account['uid']}
-            
-            success, _ = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
-            
-            if success:
-                return {'status': 'success', 'uid': account['uid']}
-            else:
-                return {'status': 'failed', 'uid': account['uid']}
-        except:
-            return {'status': 'failed', 'uid': account['uid']}
 
 def enc(uid):
     message = uid_generator_pb2.uid_generator()
@@ -424,71 +436,65 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# PROFESSIONAL HTML WEBSITE
+# Check account status in background
+async def check_all_accounts_status():
+    """Check all accounts status"""
+    accounts = load_accounts("IND")
+    for acc in accounts:
+        try:
+            token = await get_valid_token(acc['uid'], acc['password'])
+            if token:
+                # Test if account can like
+                protobuf_message = create_protobuf_message("3997461446", "IND")
+                encrypted_uid = encrypt_message(protobuf_message)
+                url = "https://client.ind.freefiremobile.com/LikeProfile"
+                success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
+                
+                if success:
+                    account_status[acc['uid']] = {
+                        'status': 'working',
+                        'last_check': datetime.now().isoformat()
+                    }
+                else:
+                    account_status[acc['uid']] = {
+                        'status': 'timeout',
+                        'last_check': datetime.now().isoformat(),
+                        'reset_time': get_next_reset_time().isoformat()
+                    }
+            else:
+                account_status[acc['uid']] = {
+                    'status': 'unknown',
+                    'last_check': datetime.now().isoformat()
+                }
+            save_account_status()
+            await asyncio.sleep(0.5)
+        except:
+            continue
+
+def run_status_check():
+    """Run status check in thread"""
+    asyncio.run(check_all_accounts_status())
+
+# HTML WEBSITE
 WEBSITE_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto-Like System - Professional Dashboard</title>
+    <title>Auto-Like System</title>
     <style>
-        /* RESET */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; }
-        
-        /* LOADING SCREEN */
-        #loading-screen {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #0a0e1a;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-            transition: opacity 0.8s ease;
-        }
-        #loading-screen.hidden { opacity: 0; pointer-events: none; }
-        .loader { width: 80px; height: 80px; border: 4px solid #1a2240; border-top-color: #4caf50; border-radius: 50%; animation: spin 0.8s linear infinite; }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        .loading-text { margin-top: 20px; color: #8899bb; font-size: 1.1em; }
-        
-        /* DDOS PROTECTION */
-        #ddos-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #0a0e1a;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 9998;
-            transition: opacity 0.8s ease;
-        }
-        #ddos-overlay.hidden { opacity: 0; pointer-events: none; }
-        .ddos-box { background: #141928; padding: 50px; border-radius: 20px; text-align: center; border: 1px solid #1e2a4a; max-width: 500px; }
-        .ddos-box h2 { color: #4caf50; font-size: 2em; margin-bottom: 10px; }
-        .ddos-box p { color: #8899bb; margin-bottom: 20px; font-size: 0.95em; }
-        .verify-btn { background: linear-gradient(135deg, #4caf50, #2e7d32); color: #fff; border: none; padding: 15px 40px; border-radius: 30px; font-size: 1.1em; cursor: pointer; transition: 0.3s; font-weight: bold; }
-        .verify-btn:hover { transform: scale(1.05); box-shadow: 0 0 30px rgba(76, 175, 80, 0.3); }
-        .verify-btn:active { transform: scale(0.95); }
-        .shield-icon { font-size: 4em; margin-bottom: 15px; }
-        
-        /* MAIN DASHBOARD */
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 30px; border-radius: 15px; margin-bottom: 25px; }
-        .header h1 { font-size: 2.5em; }
+        .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 15px; margin-bottom: 25px; }
+        .header h1 { font-size: 2.2em; }
         .header .sub { opacity: 0.8; margin-top: 5px; }
         .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
-        .header-top .right { display: flex; align-items: center; gap: 15px; flex-wrap: wrap; }
-        .badge-auto { background: #4caf5022; color: #4caf50; padding: 6px 18px; border-radius: 20px; border: 1px solid #4caf50; font-weight: bold; }
+        .badge-auto { background: #4caf5022; color: #4caf50; padding: 6px 18px; border-radius: 20px; border: 1px solid #4caf50; }
         .badge-reset { color: #ffc107; font-weight: bold; }
-        
-        /* STATUS GRID */
-        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 15px; margin-bottom: 25px; }
-        .status-card { background: #141928; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; transition: 0.3s; }
-        .status-card:hover { border-color: #4caf50; }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .status-card { background: #141928; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; }
         .status-card .num { font-size: 2.5em; font-weight: bold; }
         .status-card .lbl { color: #8899bb; font-size: 0.85em; margin-top: 5px; }
         .green { color: #4caf50; }
@@ -497,13 +503,10 @@ WEBSITE_HTML = '''
         .blue { color: #42a5f5; }
         .purple { color: #ab47bc; }
         .cyan { color: #26c6da; }
-        
-        /* PANELS */
         .panel { background: #141928; padding: 20px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 25px; }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
         .input-group { display: flex; gap: 10px; flex-wrap: wrap; }
         .input-group input { flex: 1; min-width: 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; }
-        .input-group input:focus { outline: none; border-color: #4caf50; }
         .btn { padding: 12px 25px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 1em; transition: 0.3s; }
         .btn-add { background: #4caf50; color: #fff; }
         .btn-add:hover { background: #388e3c; }
@@ -511,18 +514,14 @@ WEBSITE_HTML = '''
         .btn-del:hover { background: #c62828; }
         .btn-refresh { background: #1a237e; color: #fff; }
         .btn-refresh:hover { background: #283593; }
-        
-        /* USER LIST */
+        .btn-like { background: #ff9800; color: #fff; }
+        .btn-like:hover { background: #e68900; }
         .user-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-        .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; }
+        .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; flex-wrap: wrap; }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
         .user-item .stats { font-size: 0.8em; color: #8899bb; }
         .user-item .stats span { color: #4caf50; font-weight: bold; }
         .user-item .del-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
-        .user-item .del-btn:hover { color: #ff1744; }
-        .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
-        
-        /* TABLES */
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 15px; }
         th { background: #1e2a4a; padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
@@ -532,78 +531,39 @@ WEBSITE_HTML = '''
         .badge-timeout { background: #f4433622; color: #f44336; border: 1px solid #f44336; }
         .badge-reset { background: #ffc10722; color: #ffc107; border: 1px solid #ffc107; }
         .badge-unknown { background: #8899bb22; color: #8899bb; border: 1px solid #8899bb; }
-        
-        /* USER STATS GRID */
-        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-top: 15px; }
+        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 15px; }
         .user-stat-card { background: #1a2240; padding: 15px; border-radius: 10px; border: 1px solid #2a3a5a; }
-        .user-stat-card .uid { color: #42a5f5; font-weight: bold; }
+        .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1.1em; }
+        .user-stat-card .name { color: #fff; font-size: 0.9em; }
         .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.85em; color: #8899bb; }
         .user-stat-card .row .val { color: #4caf50; font-weight: bold; }
         .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
-        
-        /* SECTION TITLES */
         .section-title { font-size: 1.3em; color: #fff; margin-top: 25px; margin-bottom: 15px; }
-        
-        /* RESPONSIVE */
-        @media (max-width: 768px) {
-            .header h1 { font-size: 1.8em; }
-            .status-grid { grid-template-columns: repeat(2, 1fr); }
-            .ddos-box { padding: 30px; margin: 20px; }
-            .container { padding: 10px; }
-        }
-        @media (max-width: 480px) {
-            .status-grid { grid-template-columns: 1fr 1fr; }
-            .header-top { flex-direction: column; align-items: flex-start; }
-            .user-item { width: 100%; }
-        }
-        
-        /* ANIMATIONS */
-        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.5; } 100% { opacity: 1; } }
-        .pulse { animation: pulse 1.5s ease-in-out infinite; }
-        
-        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; margin-right: 8px; animation: pulse 1s ease-in-out infinite; }
-        
-        .status-working .num { color: #4caf50; }
-        .status-timeout .num { color: #f44336; }
+        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; margin-left: 10px; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
+        @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(2, 1fr); } }
+        @media (max-width: 480px) { .header h1 { font-size: 1.5em; } .status-grid { grid-template-columns: 1fr 1fr; } }
     </style>
 </head>
 <body>
-
-<!-- LOADING SCREEN -->
-<div id="loading-screen">
-    <div class="loader"></div>
-    <div class="loading-text">Loading System...</div>
-</div>
-
-<!-- DDOS PROTECTION -->
-<div id="ddos-overlay">
-    <div class="ddos-box">
-        <div class="shield-icon">🛡️</div>
-        <h2>Security Verification</h2>
-        <p>Click the button below to verify you are human and access the dashboard.</p>
-        <button class="verify-btn" onclick="verifyAccess()">✓ Click to Verify</button>
-    </div>
-</div>
-
-<!-- MAIN DASHBOARD -->
-<div class="container" id="main-dashboard" style="display:none;">
-    
+<div class="container">
     <div class="header">
         <div class="header-top">
             <div>
                 <h1>Auto-Like Dashboard</h1>
                 <div class="sub">Real-time monitoring • Auto-reset daily at 4:00 AM IST</div>
             </div>
-            <div class="right">
+            <div>
                 <span class="badge-auto">▶ Auto-Like Running</span>
-                <span>Next Reset: <span class="badge-reset" id="next-reset">2026-08-01 04:00:00 IST</span></span>
-                <button class="btn btn-refresh" onclick="location.reload()">⟳ Refresh</button>
+                <span style="margin-left:15px;">Next Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                <button class="btn btn-refresh" onclick="location.reload()" style="margin-left:15px;">⟳ Refresh</button>
+                <button class="btn btn-refresh" onclick="checkStatus()" style="margin-left:10px;">🔍 Check Status</button>
             </div>
         </div>
     </div>
 
-    <!-- STATUS CARDS -->
-    <div class="status-grid" id="status-grid">
+    <div class="status-grid">
         <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">Total Accounts</div></div>
         <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">Working Now</div></div>
         <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">Limit Reached</div></div>
@@ -612,187 +572,141 @@ WEBSITE_HTML = '''
         <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">Auto Users</div></div>
     </div>
 
-    <!-- MANAGE USERS -->
     <div class="panel">
         <h2>Manage Auto-Like Users</h2>
         <div class="input-group">
             <input type="number" id="user-uid" placeholder="Enter Free Fire UID" />
             <button class="btn btn-add" onclick="addUser()">+ Add User</button>
             <button class="btn btn-del" onclick="deleteAllUsers()">✕ Delete All</button>
+            <button class="btn btn-like" onclick="sendInstantLike()">⚡ Send Like</button>
         </div>
-        <div class="user-list" id="user-list">
-            <!-- Users will be loaded here -->
-        </div>
-        <div class="note">Users added here will receive auto-likes daily at 4:00 AM IST</div>
+        <div class="user-list" id="user-list"></div>
+        <div class="note">Users added here will receive auto-likes daily at 4:00 AM IST • Click "Send Like" for instant like</div>
     </div>
 
-    <!-- ACCOUNT STATUS TABLE -->
-    <div class="section-title">Account Status <span class="live-dot"></span> Live</div>
+    <div class="section-title">Account Status <span class="live-dot"></span></div>
     <div class="table-wrap">
         <table>
-            <thead>
-                <tr>
-                    <th>UID</th>
-                    <th>Status</th>
-                    <th>Last Check</th>
-                    <th>Reset Time</th>
-                    <th>Last Error</th>
-                </tr>
-            </thead>
-            <tbody id="account-table">
-            </tbody>
+            <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
+            <tbody id="account-table"></tbody>
         </table>
     </div>
 
-    <!-- USER STATISTICS -->
     <div class="section-title">User Statistics</div>
-    <div class="user-stats-grid" id="user-stats-grid">
-        <!-- User stats loaded here -->
-    </div>
-
+    <div class="user-stats-grid" id="user-stats-grid"></div>
 </div>
 
 <script>
-    // LOADING SCREEN
-    window.onload = function() {
-        setTimeout(function() {
-            document.getElementById('loading-screen').classList.add('hidden');
-        }, 1500);
-    };
-
-    // DDOS VERIFICATION
-    function verifyAccess() {
-        document.getElementById('ddos-overlay').classList.add('hidden');
-        document.getElementById('main-dashboard').style.display = 'block';
-        loadData();
-        setInterval(loadData, 3000);
-    }
-
-    // LOAD DATA FROM API
     function loadData() {
         fetch('/api/dashboard-data')
-            .then(response => response.json())
+            .then(res => res.json())
             .then(data => {
-                // Update stats
-                document.getElementById('total-accounts').textContent = data.total_accounts;
-                document.getElementById('working-count').textContent = data.working_count;
-                document.getElementById('timeout-count').textContent = data.timeout_count;
-                document.getElementById('total-likes').textContent = data.total_likes;
-                document.getElementById('targets-liked').textContent = data.targets_liked;
-                document.getElementById('auto-users').textContent = data.auto_users;
-                document.getElementById('next-reset').textContent = data.next_reset;
+                document.getElementById('total-accounts').textContent = data.total_accounts || 0;
+                document.getElementById('working-count').textContent = data.working_count || 0;
+                document.getElementById('timeout-count').textContent = data.timeout_count || 0;
+                document.getElementById('total-likes').textContent = data.total_likes || 0;
+                document.getElementById('targets-liked').textContent = data.targets_liked || 0;
+                document.getElementById('auto-users').textContent = data.auto_users || 0;
+                document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
 
-                // Update user list
-                let userListHtml = '';
+                let userHtml = '';
                 data.users.forEach(user => {
-                    const stats = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
-                    userListHtml += `
-                        <div class="user-item">
-                            <span class="uid">${user}</span>
-                            <span class="stats">Total: <span>${stats.total_likes || 0}</span> | Today: <span>${stats.today_likes || 0}</span></span>
-                            <button class="del-btn" onclick="deleteUser('${user}')">✕</button>
-                        </div>
-                    `;
+                    const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
+                    userHtml += `<div class="user-item">
+                        <span class="uid">${user}</span>
+                        <span class="stats">Total: <span>${s.total_likes||0}</span> | Today: <span>${s.today_likes||0}</span></span>
+                        <button class="del-btn" onclick="deleteUser('${user}')">✕</button>
+                    </div>`;
                 });
-                document.getElementById('user-list').innerHTML = userListHtml;
+                document.getElementById('user-list').innerHTML = userHtml || '<div class="note">No users added yet</div>';
 
-                // Update account table
                 let tableHtml = '';
                 data.accounts.forEach(acc => {
-                    const statusClass = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
-                    tableHtml += `
-                        <tr>
-                            <td><strong>${acc.uid}</strong></td>
-                            <td><span class="badge badge-${statusClass}">${acc.status}</span></td>
-                            <td>${acc.last_check || 'Never'}</td>
-                            <td>${acc.reset_time || 'N/A'}</td>
-                            <td>${acc.last_error || 'None'}</td>
-                        </tr>
-                    `;
+                    const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
+                    tableHtml += `<tr><td><strong>${acc.uid}</strong></td>
+                        <td><span class="badge badge-${cls}">${acc.status}</span></td>
+                        <td>${acc.last_check || 'Never'}</td>
+                        <td>${acc.reset_time || 'N/A'}</td>
+                        <td>${acc.last_error || 'None'}</td></tr>`;
                 });
-                document.getElementById('account-table').innerHTML = tableHtml;
+                document.getElementById('account-table').innerHTML = tableHtml || '<tr><td colspan="5">No accounts loaded</td></tr>';
 
-                // Update user stats grid
                 let statsHtml = '';
                 Object.keys(data.user_stats).forEach(uid => {
-                    const stats = data.user_stats[uid];
-                    statsHtml += `
-                        <div class="user-stat-card">
-                            <div class="uid">UID: ${uid}</div>
-                            <div class="row"><span>Total Likes</span><span class="val">${stats.total_likes || 0}</span></div>
-                            <div class="row"><span>Today's Likes</span><span class="val">${stats.today_likes || 0}</span></div>
-                            <div class="last">Last Like: ${stats.last_like || 'Never'}</div>
-                        </div>
-                    `;
+                    const s = data.user_stats[uid];
+                    statsHtml += `<div class="user-stat-card">
+                        <div class="uid">UID: ${uid}</div>
+                        <div class="name">Name: ${s.username || 'Unknown'}</div>
+                        <div class="row"><span>Total Likes</span><span class="val">${s.total_likes||0}</span></div>
+                        <div class="row"><span>Today's Likes</span><span class="val">${s.today_likes||0}</span></div>
+                        <div class="row"><span>Current Likes</span><span class="val">${s.current_likes||0}</span></div>
+                        <div class="last">Last: ${s.last_like || 'Never'}</div>
+                    </div>`;
                 });
-                document.getElementById('user-stats-grid').innerHTML = statsHtml;
-            })
-            .catch(error => console.error('Error loading data:', error));
+                document.getElementById('user-stats-grid').innerHTML = statsHtml || '<div class="note">No stats yet</div>';
+            });
     }
 
-    // ADD USER
+    function checkStatus() {
+        fetch('/api/check-status')
+            .then(res => res.json())
+            .then(data => {
+                alert(data.message);
+                setTimeout(loadData, 2000);
+            });
+    }
+
     function addUser() {
         const uid = document.getElementById('user-uid').value.trim();
-        if (!uid) { alert('Please enter a UID'); return; }
-        
-        fetch('/add-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid })
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                loadData();
-                document.getElementById('user-uid').value = '';
-            } else {
-                alert(data.message || 'Error adding user');
-            }
-        });
+        if (!uid) { alert('Enter a UID'); return; }
+        fetch('/add-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) })
+            .then(res => res.json())
+            .then(data => { if (data.success) { loadData(); document.getElementById('user-uid').value = ''; } else { alert(data.message); } });
     }
 
-    // DELETE USER
     function deleteUser(uid) {
-        if (!confirm('Remove this user from auto-like?')) return;
+        if (!confirm('Remove this user?')) return;
+        fetch('/delete-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) })
+            .then(res => res.json())
+            .then(data => { if (data.success) loadData(); else alert(data.message); });
+    }
+
+    function deleteAllUsers() {
+        if (!confirm('Delete ALL users?')) return;
+        fetch('/delete-all-users', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
+            .then(res => res.json())
+            .then(data => { if (data.success) loadData(); else alert(data.message); });
+    }
+
+    function sendInstantLike() {
+        const uid = document.getElementById('user-uid').value.trim();
+        if (!uid) { alert('Enter a UID to like'); return; }
+        if (!confirm(`Send likes to ${uid}?`)) return;
         
-        fetch('/delete-user', {
+        fetch('/like-instant', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid })
+            body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', likes: 10 })
         })
-        .then(response => response.json())
+        .then(res => res.json())
         .then(data => {
             if (data.success) {
+                alert(`✅ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal Likes: ${data.total_likes}`);
                 loadData();
             } else {
-                alert(data.message || 'Error deleting user');
+                alert('❌ Error: ' + (data.error || 'Unknown error'));
             }
         });
     }
 
-    // DELETE ALL USERS
-    function deleteAllUsers() {
-        if (!confirm('Delete ALL users from auto-like?')) return;
-        
-        fetch('/delete-all-users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        })
-        .then(response => response.json())
-        .then(data => {
-            if (data.success) {
-                loadData();
-            } else {
-                alert(data.message || 'Error deleting users');
-            }
-        });
-    }
+    setInterval(loadData, 3000);
+    window.onload = loadData;
 </script>
 </body>
 </html>
 '''
 
-# API Routes
+# Routes
 @app.route('/')
 def dashboard():
     return render_template_string(WEBSITE_HTML)
@@ -841,6 +755,11 @@ def dashboard_data():
         'accounts': account_list
     })
 
+@app.route('/api/check-status')
+def check_status_api():
+    threading.Thread(target=run_status_check).start()
+    return jsonify({'message': 'Status check started! Refresh in 10 seconds'})
+
 @app.route('/add-user', methods=['POST'])
 def add_user():
     data = request.get_json()
@@ -853,7 +772,7 @@ def add_user():
         return jsonify({'success': False, 'message': 'UID already in list'})
     
     auto_like_users.append(uid)
-    user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None}
+    user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
     save_users()
     return jsonify({'success': True, 'message': f'Added {uid}'})
 
@@ -877,6 +796,53 @@ def delete_all_users():
     user_stats.clear()
     save_users()
     return jsonify({'success': True, 'message': 'All users deleted'})
+
+@app.route('/like-instant', methods=['POST'])
+def like_instant():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    server_name = data.get('server_name', 'IND').upper()
+    key = data.get('key', 'JMLB')
+    likes = int(data.get('likes', 10))
+    
+    if key != "JMLB":
+        return jsonify({'success': False, 'error': 'Invalid key'})
+    
+    if not uid:
+        return jsonify({'success': False, 'error': 'UID required'})
+    
+    # Get user info before
+    user_info_before = asyncio.run(get_user_info(uid, server_name))
+    before_likes = user_info_before.get('likes', 0) if user_info_before else 0
+    
+    # Send likes
+    if server_name == "IND":
+        like_url = "https://client.ind.freefiremobile.com/LikeProfile"
+    elif server_name in {"BR", "US", "SAC", "NA"}:
+        like_url = "https://client.us.freefiremobile.com/LikeProfile"
+    else:
+        like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
+    
+    result = asyncio.run(send_likes_batch(uid, server_name, like_url, likes))
+    
+    # Get user info after
+    user_info_after = asyncio.run(get_user_info(uid, server_name))
+    
+    if user_info_after:
+        username = user_info_after.get('name', 'Unknown')
+        current_likes = user_info_after.get('likes', 0)
+        update_user_stats(uid, result['success'], username, current_likes)
+    else:
+        update_user_stats(uid, result['success'])
+    
+    return jsonify({
+        'success': result['success'] > 0,
+        'likes_sent': result['success'],
+        'username': user_info_after.get('name', 'Unknown') if user_info_after else 'Unknown',
+        'total_likes': user_info_after.get('likes', 0) if user_info_after else 0,
+        'skipped': result.get('skipped', 0),
+        'failed': result.get('failed', 0)
+    })
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
@@ -1053,6 +1019,9 @@ reset_thread.start()
 
 auto_thread = threading.Thread(target=start_auto_like, daemon=True)
 auto_thread.start()
+
+# Initial status check
+threading.Thread(target=run_status_check).start()
 
 print("Auto-Like System Started!")
 print(f"Users loaded: {len(auto_like_users)}")
