@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, redirect, url_for, session
 import asyncio
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
@@ -21,8 +21,10 @@ from datetime import timedelta
 import pickle
 import threading
 
-TOKEN_CACHE = {}
 app = Flask(__name__)
+app.secret_key = 'your-secret-key-here'
+
+TOKEN_CACHE = {}
 
 KEY_LIMIT = 500
 tracker = defaultdict(lambda: [0, time.time()])
@@ -456,41 +458,34 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-WEBSITE_HTML = '''
+# LOGIN PAGE HTML
+LOGIN_HTML = '''
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Auto-Like System</title>
+    <title>Login - Auto-Like System</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; }
-        
-        #ddos-overlay {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #0a0e1a;
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
+            background: #0a0e1a; 
+            color: #ffffff; 
+            min-height: 100vh;
             display: flex;
-            flex-direction: column;
             align-items: center;
             justify-content: center;
-            z-index: 99998;
         }
-        #ddos-overlay.hidden { opacity: 0; pointer-events: none; }
-        
-        .ddos-box {
+        .login-box {
             background: #141928;
             padding: 50px;
             border-radius: 16px;
-            text-align: center;
             border: 1px solid #1e2a4a;
-            max-width: 450px;
+            max-width: 400px;
             width: 90%;
             position: relative;
             overflow: hidden;
         }
-        .ddos-box::before {
+        .login-box::before {
             content: '';
             position: absolute;
             top: -2px; left: -2px; right: -2px; bottom: -2px;
@@ -501,54 +496,66 @@ WEBSITE_HTML = '''
             z-index: -1;
         }
         @keyframes borderGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-        
-        .ddos-icon { font-size: 3.5em; color: #ff1744; margin-bottom: 15px; }
-        .ddos-box h2 { color: #ff1744; font-size: 1.8em; margin-bottom: 8px; }
-        .ddos-box p { color: #8899bb; margin-bottom: 25px; font-size: 0.95em; }
-        
-        .verify-btn {
+        .login-box h1 { color: #ff1744; font-size: 2em; text-align: center; margin-bottom: 10px; }
+        .login-box p { color: #8899bb; text-align: center; margin-bottom: 30px; font-size: 0.95em; }
+        .login-box input {
+            width: 100%;
+            padding: 12px 15px;
+            border-radius: 8px;
+            border: 1px solid #1e2a4a;
+            background: #0a0e1a;
+            color: #fff;
+            font-size: 1em;
+            margin-bottom: 15px;
+        }
+        .login-box input:focus { outline: none; border-color: #ff1744; }
+        .login-box .login-btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 8px;
             background: linear-gradient(135deg, #ff1744, #d50000);
             color: #fff;
-            border: none;
-            padding: 14px 45px;
-            border-radius: 30px;
-            font-size: 1.05em;
+            font-size: 1.1em;
+            font-weight: bold;
             cursor: pointer;
             transition: 0.3s;
-            font-weight: bold;
-            letter-spacing: 1px;
         }
-        .verify-btn:hover { transform: scale(1.05); box-shadow: 0 0 40px rgba(255, 23, 68, 0.3); }
-        .verify-btn:active { transform: scale(0.95); }
+        .login-box .login-btn:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(255, 23, 68, 0.3); }
+        .login-error { color: #ff1744; text-align: center; margin-top: 15px; display: none; }
+        .icon { font-size: 3em; text-align: center; margin-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <div class="login-box">
+        <div class="icon">&#9888;</div>
+        <h1>Auto-Like System</h1>
+        <p>Enter credentials to access the dashboard</p>
         
-        .admin-section {
-            margin-top: 20px;
-            padding-top: 20px;
-            border-top: 1px solid #1a2240;
-        }
-        .admin-section input {
-            background: #0a0e1a;
-            border: 1px solid #1e2a4a;
-            color: #fff;
-            padding: 8px 15px;
-            border-radius: 6px;
-            margin: 5px;
-            width: 150px;
-        }
-        .admin-section input:focus { outline: none; border-color: #ff1744; }
-        .admin-btn {
-            background: #1a2240;
-            color: #fff;
-            border: none;
-            padding: 8px 20px;
-            border-radius: 6px;
-            cursor: pointer;
-        }
-        .admin-btn:hover { background: #2a3a5a; }
-        .admin-error { color: #ff1744; font-size: 0.85em; margin-top: 10px; display: none; }
+        <form method="POST" action="/login">
+            <input type="text" name="username" placeholder="Username" value="admin" required />
+            <input type="password" name="password" placeholder="Password" value="admin123" required />
+            <button type="submit" class="login-btn">&#128274; Login</button>
+        </form>
         
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; display: none; }
-        .container.visible { display: block; }
+        <div class="login-error" id="login-error">Invalid credentials!</div>
+    </div>
+</body>
+</html>
+'''
+
+# DASHBOARD HTML
+DASHBOARD_HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Auto-Like Dashboard</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
         
         .header {
             background: linear-gradient(135deg, #1a237e, #283593);
@@ -599,6 +606,8 @@ WEBSITE_HTML = '''
         .btn-del:hover { background: #c62828; }
         .btn-like { background: #ff6f00; color: #fff; }
         .btn-like:hover { background: #e65100; }
+        .btn-logout { background: #1a2240; color: #fff; }
+        .btn-logout:hover { background: #2a3a5a; }
         
         .status-grid {
             display: grid;
@@ -757,12 +766,10 @@ WEBSITE_HTML = '''
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
         
         .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
-        .icon { font-size: 1.2em; margin-right: 6px; }
         
         @media (max-width: 768px) {
             .status-grid { grid-template-columns: repeat(2, 1fr); }
             .header h1 { font-size: 1.5em; }
-            .ddos-box { padding: 30px; }
         }
         @media (max-width: 480px) {
             .status-grid { grid-template-columns: 1fr 1fr; }
@@ -771,249 +778,239 @@ WEBSITE_HTML = '''
     </style>
 </head>
 <body>
-
-<div id="ddos-overlay">
-    <div class="ddos-box">
-        <div class="ddos-icon">&#9888;</div>
-        <h2>Security Verification</h2>
-        <p>Enter admin credentials to access the dashboard.</p>
-        
-        <div class="admin-section" id="admin-section" style="display:block;">
-            <input type="text" id="admin-user" placeholder="Username" value="admin" />
-            <input type="password" id="admin-pass" placeholder="Password" value="admin123" />
-            <button class="admin-btn" onclick="verifyAdmin()">&#128274; Login</button>
-            <div class="admin-error" id="admin-error">Invalid credentials!</div>
-        </div>
-    </div>
-</div>
-
-<div class="container" id="main-dashboard">
-    <div class="header">
-        <div class="header-top">
-            <div>
-                <h1>&#9889; Auto-Like Dashboard</h1>
-                <div class="sub">Real-time monitoring &#8226; Auto-reset daily at 4:00 AM IST</div>
-            </div>
-            <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                <span class="badge-auto">&#9654; Auto-Like Running</span>
-                <span>Next Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                <button class="btn btn-refresh" onclick="location.reload()">&#8635; Refresh</button>
-                <button class="btn btn-check" onclick="checkStatus()">&#128270; Check</button>
+    <div class="container">
+        <div class="header">
+            <div class="header-top">
+                <div>
+                    <h1>&#9889; Auto-Like Dashboard</h1>
+                    <div class="sub">Real-time monitoring &#8226; Auto-reset daily at 4:00 AM IST</div>
+                </div>
+                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <span class="badge-auto">&#9654; Auto-Like Running</span>
+                    <span>Next Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                    <button class="btn btn-refresh" onclick="location.reload()">&#8635; Refresh</button>
+                    <button class="btn btn-check" onclick="checkStatus()">&#128270; Check</button>
+                    <a href="/logout"><button class="btn btn-logout">&#128682; Logout</button></a>
+                </div>
             </div>
         </div>
-    </div>
 
-    <div class="status-grid">
-        <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">&#128203; Total Accounts</div></div>
-        <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">&#9989; Working Now</div></div>
-        <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">&#9888; Limit Reached</div></div>
-        <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">&#10084; Total Likes</div></div>
-        <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">&#128101; Targets Liked</div></div>
-        <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">&#128100; Auto Users</div></div>
-    </div>
-
-    <div class="panel">
-        <h2>&#9889; Manage Auto-Like Users</h2>
-        <div class="input-group">
-            <input type="number" id="user-uid" placeholder="Enter Free Fire UID" />
-            <button class="btn btn-add" onclick="addUser()">&#43; Add User</button>
-            <button class="btn btn-del" onclick="deleteAllUsers()">&#10007; Delete All</button>
-            <button class="btn btn-like" onclick="sendInstantLike()">&#9889; Send Like</button>
+        <div class="status-grid">
+            <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">&#128203; Total Accounts</div></div>
+            <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">&#9989; Working Now</div></div>
+            <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">&#9888; Limit Reached</div></div>
+            <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">&#10084; Total Likes</div></div>
+            <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">&#128101; Targets Liked</div></div>
+            <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">&#128100; Auto Users</div></div>
         </div>
-        <div class="user-list" id="user-list"></div>
-        <div class="note">&#9432; Users added here will receive auto-likes daily at 4:00 AM IST &#8226; Click "Send Like" for instant like</div>
+
+        <div class="panel">
+            <h2>&#9889; Manage Auto-Like Users</h2>
+            <div class="input-group">
+                <input type="number" id="user-uid" placeholder="Enter Free Fire UID" />
+                <button class="btn btn-add" onclick="addUser()">&#43; Add User</button>
+                <button class="btn btn-del" onclick="deleteAllUsers()">&#10007; Delete All</button>
+                <button class="btn btn-like" onclick="sendInstantLike()">&#9889; Send Like</button>
+            </div>
+            <div class="user-list" id="user-list"></div>
+            <div class="note">&#9432; Users added here will receive auto-likes daily at 4:00 AM IST &#8226; Click "Send Like" for instant like</div>
+        </div>
+
+        <div class="section-title">&#128202; Account Status <span class="live-dot"></span></div>
+        <div class="table-wrap">
+            <table>
+                <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
+                <tbody id="account-table"></tbody>
+            </table>
+        </div>
+
+        <div class="section-title">&#128202; User Statistics</div>
+        <div class="user-stats-grid" id="user-stats-grid"></div>
     </div>
 
-    <div class="section-title">&#128202; Account Status <span class="live-dot"></span></div>
-    <div class="table-wrap">
-        <table>
-            <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
-            <tbody id="account-table"></tbody>
-        </table>
-    </div>
+    <script>
+        function loadData() {
+            fetch('/api/dashboard-data')
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    document.getElementById('total-accounts').textContent = data.total_accounts || 0;
+                    document.getElementById('working-count').textContent = data.working_count || 0;
+                    document.getElementById('timeout-count').textContent = data.timeout_count || 0;
+                    document.getElementById('total-likes').textContent = data.total_likes || 0;
+                    document.getElementById('targets-liked').textContent = data.targets_liked || 0;
+                    document.getElementById('auto-users').textContent = data.auto_users || 0;
+                    document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
 
-    <div class="section-title">&#128202; User Statistics</div>
-    <div class="user-stats-grid" id="user-stats-grid"></div>
-</div>
+                    var userHtml = '';
+                    if (data.users && data.users.length > 0) {
+                        data.users.forEach(function(user) {
+                            var s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
+                            userHtml += '<div class="user-item">' +
+                                '<span class="uid">' + user + '</span>' +
+                                '<span class="stats">Total: <span>' + (s.total_likes||0) + '</span> | Today: <span>' + (s.today_likes||0) + '</span></span>' +
+                                '<button class="del-btn" onclick="deleteUser(\'' + user + '\')">&#10005;</button>' +
+                            '</div>';
+                        });
+                    } else {
+                        userHtml = '<div class="note">No users added yet</div>';
+                    }
+                    document.getElementById('user-list').innerHTML = userHtml;
 
-<script>
-    function verifyAdmin() {
-        var user = document.getElementById('admin-user').value;
-        var pass = document.getElementById('admin-pass').value;
-        
-        if (user === 'admin' && pass === 'admin123') {
-            document.getElementById('ddos-overlay').classList.add('hidden');
-            document.getElementById('main-dashboard').classList.add('visible');
-            loadData();
-            setInterval(loadData, 3000);
-            setInterval(checkStatus, 10000);
-        } else {
-            document.getElementById('admin-error').style.display = 'block';
-            setTimeout(function() {
-                document.getElementById('admin-error').style.display = 'none';
-            }, 3000);
+                    var tableHtml = '';
+                    if (data.accounts && data.accounts.length > 0) {
+                        data.accounts.forEach(function(acc) {
+                            var cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
+                            tableHtml += '<tr>' +
+                                '<td><strong>' + acc.uid + '</strong></td>' +
+                                '<td><span class="badge badge-' + cls + '">' + acc.status + '</span></td>' +
+                                '<td>' + (acc.last_check || 'Never') + '</td>' +
+                                '<td>' + (acc.reset_time || 'N/A') + '</td>' +
+                                '<td>' + (acc.last_error || 'None') + '</td>' +
+                            '</tr>';
+                        });
+                    } else {
+                        tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
+                    }
+                    document.getElementById('account-table').innerHTML = tableHtml;
+
+                    var statsHtml = '';
+                    if (data.user_stats && Object.keys(data.user_stats).length > 0) {
+                        var keys = Object.keys(data.user_stats);
+                        keys.forEach(function(uid) {
+                            var s = data.user_stats[uid];
+                            statsHtml += '<div class="user-stat-card">' +
+                                '<div class="uid">UID: ' + uid + '</div>' +
+                                '<div class="name">Name: ' + (s.username || 'Unknown') + '</div>' +
+                                '<div class="row"><span>Total Likes</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
+                                '<div class="row"><span>Today\'s Likes</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
+                                '<div class="row"><span>Current Likes</span><span class="val">' + (s.current_likes||0) + '</span></div>' +
+                                '<div class="last">Last: ' + (s.last_like || 'Never') + '</div>' +
+                            '</div>';
+                        });
+                    } else {
+                        statsHtml = '<div class="note">No stats yet</div>';
+                    }
+                    document.getElementById('user-stats-grid').innerHTML = statsHtml;
+                });
         }
-    }
 
-    function loadData() {
-        fetch('/api/dashboard-data')
+        function checkStatus() {
+            fetch('/api/check-status')
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    console.log('Status check started');
+                    setTimeout(loadData, 3000);
+                });
+        }
+
+        function addUser() {
+            var uid = document.getElementById('user-uid').value.trim();
+            if (!uid) { alert('Enter a UID'); return; }
+            fetch('/add-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid })
+            })
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                document.getElementById('total-accounts').textContent = data.total_accounts || 0;
-                document.getElementById('working-count').textContent = data.working_count || 0;
-                document.getElementById('timeout-count').textContent = data.timeout_count || 0;
-                document.getElementById('total-likes').textContent = data.total_likes || 0;
-                document.getElementById('targets-liked').textContent = data.targets_liked || 0;
-                document.getElementById('auto-users').textContent = data.auto_users || 0;
-                document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
-
-                var userHtml = '';
-                if (data.users && data.users.length > 0) {
-                    data.users.forEach(function(user) {
-                        var s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
-                        userHtml += '<div class="user-item">' +
-                            '<span class="uid">' + user + '</span>' +
-                            '<span class="stats">Total: <span>' + (s.total_likes||0) + '</span> | Today: <span>' + (s.today_likes||0) + '</span></span>' +
-                            '<button class="del-btn" onclick="deleteUser(\'' + user + '\')">&#10005;</button>' +
-                        '</div>';
-                    });
+                if (data.success) {
+                    loadData();
+                    document.getElementById('user-uid').value = '';
                 } else {
-                    userHtml = '<div class="note">No users added yet</div>';
+                    alert(data.message);
                 }
-                document.getElementById('user-list').innerHTML = userHtml;
-
-                var tableHtml = '';
-                if (data.accounts && data.accounts.length > 0) {
-                    data.accounts.forEach(function(acc) {
-                        var cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
-                        tableHtml += '<tr>' +
-                            '<td><strong>' + acc.uid + '</strong></td>' +
-                            '<td><span class="badge badge-' + cls + '">' + acc.status + '</span></td>' +
-                            '<td>' + (acc.last_check || 'Never') + '</td>' +
-                            '<td>' + (acc.reset_time || 'N/A') + '</td>' +
-                            '<td>' + (acc.last_error || 'None') + '</td>' +
-                        '</tr>';
-                    });
-                } else {
-                    tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
-                }
-                document.getElementById('account-table').innerHTML = tableHtml;
-
-                var statsHtml = '';
-                if (data.user_stats && Object.keys(data.user_stats).length > 0) {
-                    var keys = Object.keys(data.user_stats);
-                    keys.forEach(function(uid) {
-                        var s = data.user_stats[uid];
-                        statsHtml += '<div class="user-stat-card">' +
-                            '<div class="uid">UID: ' + uid + '</div>' +
-                            '<div class="name">Name: ' + (s.username || 'Unknown') + '</div>' +
-                            '<div class="row"><span>Total Likes</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
-                            '<div class="row"><span>Today\'s Likes</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
-                            '<div class="row"><span>Current Likes</span><span class="val">' + (s.current_likes||0) + '</span></div>' +
-                            '<div class="last">Last: ' + (s.last_like || 'Never') + '</div>' +
-                        '</div>';
-                    });
-                } else {
-                    statsHtml = '<div class="note">No stats yet</div>';
-                }
-                document.getElementById('user-stats-grid').innerHTML = statsHtml;
             });
-    }
+        }
 
-    function checkStatus() {
-        fetch('/api/check-status')
+        function deleteUser(uid) {
+            if (!confirm('Remove this user?')) return;
+            fetch('/delete-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid })
+            })
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                console.log('Status check started');
-                setTimeout(loadData, 3000);
+                if (data.success) loadData();
+                else alert(data.message);
             });
-    }
+        }
 
-    function addUser() {
-        var uid = document.getElementById('user-uid').value.trim();
-        if (!uid) { alert('Enter a UID'); return; }
-        fetch('/add-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid })
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            if (data.success) {
-                loadData();
-                document.getElementById('user-uid').value = '';
-            } else {
-                alert(data.message);
-            }
-        });
-    }
+        function deleteAllUsers() {
+            if (!confirm('Delete ALL users?')) return;
+            fetch('/delete-all-users', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' }
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                if (data.success) loadData();
+                else alert(data.message);
+            });
+        }
 
-    function deleteUser(uid) {
-        if (!confirm('Remove this user?')) return;
-        fetch('/delete-user', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid })
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            if (data.success) loadData();
-            else alert(data.message);
-        });
-    }
+        function sendInstantLike() {
+            var uid = document.getElementById('user-uid').value.trim();
+            if (!uid) { alert('Enter a UID to like'); return; }
+            if (!confirm('Send likes to ' + uid + '?')) return;
+            
+            var btn = document.querySelector('.btn-like');
+            btn.textContent = '⏳ Sending...';
+            btn.disabled = true;
+            
+            fetch('/like-instant', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid: uid, server_name: 'IND', key: 'JMLB', likes: 492 })
+            })
+            .then(function(res) { return res.json(); })
+            .then(function(data) {
+                btn.textContent = '⚡ Send Like';
+                btn.disabled = false;
+                if (data.success) {
+                    alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal Likes: ' + data.total_likes);
+                    loadData();
+                } else {
+                    alert('❌ Error: ' + (data.error || 'Unknown error'));
+                }
+            });
+        }
 
-    function deleteAllUsers() {
-        if (!confirm('Delete ALL users?')) return;
-        fetch('/delete-all-users', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' }
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            if (data.success) loadData();
-            else alert(data.message);
-        });
-    }
-
-    function sendInstantLike() {
-        var uid = document.getElementById('user-uid').value.trim();
-        if (!uid) { alert('Enter a UID to like'); return; }
-        if (!confirm('Send likes to ' + uid + '?')) return;
-        
-        var btn = document.querySelector('.btn-like');
-        btn.textContent = '⏳ Sending...';
-        btn.disabled = true;
-        
-        fetch('/like-instant', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ uid: uid, server_name: 'IND', key: 'JMLB', likes: 492 })
-        })
-        .then(function(res) { return res.json(); })
-        .then(function(data) {
-            btn.textContent = '⚡ Send Like';
-            btn.disabled = false;
-            if (data.success) {
-                alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal Likes: ' + data.total_likes);
-                loadData();
-            } else {
-                alert('❌ Error: ' + (data.error || 'Unknown error'));
-            }
-        });
-    }
-
-    setInterval(checkStatus, 10000);
-</script>
+        loadData();
+        setInterval(loadData, 3000);
+        setInterval(checkStatus, 10000);
+    </script>
 </body>
 </html>
 '''
 
 @app.route('/')
-def dashboard():
-    return render_template_string(WEBSITE_HTML)
+def index():
+    if session.get('logged_in'):
+        return render_template_string(DASHBOARD_HTML)
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username')
+    password = request.form.get('password')
+    
+    if username == 'admin' and password == 'admin123':
+        session['logged_in'] = True
+        return redirect('/')
+    
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    return redirect('/')
 
 @app.route('/api/dashboard-data')
 def dashboard_data():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     accounts = load_accounts("IND")
     total = len(accounts)
     
