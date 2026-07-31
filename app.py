@@ -35,12 +35,9 @@ like_timestamps = {}
 ACCOUNT_STATUS_FILE = "account_status.pkl"
 account_status = {}
 
-# Auto-like queue
-AUTO_QUEUE_FILE = "auto_queue.pkl"
-auto_queue = []  # list of UIDs to auto-like daily
-
-# Stats per UID
-user_stats = {}  # uid -> {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0, 'auto_likes_sent': 0}
+USERS_FILE = "users.pkl"
+auto_queue = []          # list of UIDs to auto-like daily
+user_stats = {}          # uid -> {total, today, last, username, current, auto_sent}
 
 RESET_HOUR = 4
 RESET_MINUTE = 0
@@ -48,68 +45,11 @@ RESET_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1, 0.15, 0.2]
 
-def load_auto_queue():
-    global auto_queue
-    try:
-        if os.path.exists(AUTO_QUEUE_FILE):
-            with open(AUTO_QUEUE_FILE, 'rb') as f:
-                auto_queue = pickle.load(f)
-                print(f"Loaded auto queue: {len(auto_queue)} UIDs")
-        else:
-            auto_queue = []
-            save_auto_queue()
-    except Exception as e:
-        print(f"Error loading auto queue: {e}")
-        auto_queue = []
+# Extra: last auto-like run info
+last_auto_run = None
+auto_run_status = "Idle"
+auto_run_message = ""
 
-def save_auto_queue():
-    try:
-        with open(AUTO_QUEUE_FILE, 'wb') as f:
-            pickle.dump(auto_queue, f)
-        print(f"Saved auto queue: {len(auto_queue)} UIDs")
-    except Exception as e:
-        print(f"Error saving auto queue: {e}")
-
-def load_users():
-    global auto_queue, user_stats
-    # Merge: auto_queue is the list of UIDs to auto-like
-    # user_stats holds per-UID data
-    try:
-        if os.path.exists(USERS_FILE):
-            with open(USERS_FILE, 'rb') as f:
-                data = pickle.load(f)
-                if isinstance(data, dict):
-                    # For backward compatibility, we might have 'users' and 'stats'
-                    if 'users' in data:
-                        auto_queue = data.get('users', [])
-                    if 'stats' in data:
-                        user_stats = data.get('stats', {})
-                else:
-                    auto_queue = data
-                    user_stats = {}
-                print(f"Loaded {len(auto_queue)} users")
-        else:
-            auto_queue = []
-            user_stats = {}
-            save_users()
-    except Exception as e:
-        print(f"Error loading users: {e}")
-        auto_queue = []
-        user_stats = {}
-
-def save_users():
-    try:
-        data = {
-            'users': auto_queue,
-            'stats': user_stats
-        }
-        with open(USERS_FILE, 'wb') as f:
-            pickle.dump(data, f)
-    except Exception as e:
-        print(f"Error saving users: {e}")
-
-# We'll use load_users/save_users to manage both auto_queue and user_stats
-# Override previous functions
 def load_users():
     global auto_queue, user_stats
     try:
@@ -134,10 +74,7 @@ def load_users():
 
 def save_users():
     try:
-        data = {
-            'users': auto_queue,
-            'stats': user_stats
-        }
+        data = {'users': auto_queue, 'stats': user_stats}
         with open(USERS_FILE, 'wb') as f:
             pickle.dump(data, f)
     except Exception as e:
@@ -177,10 +114,7 @@ def load_liked_data():
 
 def save_liked_data():
     try:
-        data = {
-            'liked_cache': liked_cache,
-            'like_timestamps': like_timestamps
-        }
+        data = {'liked_cache': liked_cache, 'like_timestamps': like_timestamps}
         with open(LIKED_DATA_FILE, 'wb') as f:
             pickle.dump(data, f)
     except Exception as e:
@@ -202,7 +136,8 @@ def mark_as_liked(target_uid, account_uid):
 
 def update_user_stats(target_uid, likes_given, username="", current_likes=0):
     if target_uid not in user_stats:
-        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0, 'auto_likes_sent': 0}
+        user_stats[target_uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None,
+                                  'username': '', 'current_likes': 0, 'auto_sent': 0}
     user_stats[target_uid]['total_likes'] += likes_given
     user_stats[target_uid]['today_likes'] += likes_given
     user_stats[target_uid]['last_like'] = datetime.now().isoformat()
@@ -242,7 +177,7 @@ def reset_all_data():
         account_status[uid]['reset_time'] = datetime.now().isoformat()
     for uid in user_stats:
         user_stats[uid]['today_likes'] = 0
-        user_stats[uid]['auto_likes_sent'] = 0
+        user_stats[uid]['auto_sent'] = 0
     save_liked_data()
     save_account_status()
     save_users()
@@ -255,10 +190,8 @@ def load_accounts(server_name):
             filename = "account_br.txt"
         else:
             filename = "account_bd.txt"
-        
         if not os.path.exists(filename):
             return []
-        
         accounts = []
         with open(filename, "r") as f:
             for line in f:
@@ -280,16 +213,13 @@ async def get_user_info(target_uid, server_name="IND"):
         accounts = load_accounts(server_name)
         if not accounts:
             return None
-        
         check_token = None
         for account in accounts[:5]:
             check_token = await get_valid_token(account['uid'], account['password'])
             if check_token:
                 break
-        
         if not check_token:
             return None
-        
         encrypted_uid = enc(target_uid)
         info = get_player_info(encrypted_uid, server_name, check_token)
         if info:
@@ -329,18 +259,15 @@ async def get_valid_token(uid, password):
         remaining = (cached["expires_at"] - datetime.utcnow()).total_seconds()
         if remaining > 1800:
             return cached["token"]
-
     token = await generate_jwt_token(uid, password)
     if not token:
         return None
-
     try:
         payload = jwt.decode(token, options={"verify_signature": False})
         exp = payload.get("exp")
         TOKEN_CACHE[uid] = {"token": token, "expires_at": datetime.utcfromtimestamp(exp)}
     except:
         TOKEN_CACHE[uid] = {"token": token, "expires_at": datetime.utcnow() + timedelta(hours=24)}
-
     return token
 
 def encrypt_message(plaintext):
@@ -365,12 +292,10 @@ async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
         'X-GA': "v1 1",
         'ReleaseVersion': "OB54"
     }
-    
     try:
         async with aiohttp.ClientSession() as session:
             async with session.post(url, data=edata, headers=headers, timeout=3) as response:
                 response_text = await response.text()
-                
                 if response.status == 200:
                     if account_uid in account_status:
                         account_status[account_uid]['status'] = 'working'
@@ -389,51 +314,38 @@ async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
         return False, "error"
 
 async def send_likes_ultra_fast(target_uid, server_name, url, limit):
-    """Send likes using all fresh accounts, returns success count"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0}
-    
     fresh_accounts = []
     skipped_24hr = 0
-    
     for acc in accounts:
         if is_uid_liked_in_24hrs(target_uid, acc['uid']):
             skipped_24hr += 1
         else:
             fresh_accounts.append(acc)
-    
     if not fresh_accounts:
         return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped_24hr}
-    
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
-    
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
-    
     tasks = []
     for acc in accounts_to_use:
         tasks.append(send_single_ultra_fast(target_uid, encrypted_uid, acc, url))
-    
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
     successful = 0
     failed = 0
-    
     for r in results:
         if isinstance(r, dict) and r.get('status') == 'success':
             successful += 1
             mark_as_liked(target_uid, r['uid'])
         else:
             failed += 1
-    
-    # Update user stats
     if successful > 0:
         user_info = await get_user_info(target_uid, server_name)
         username = user_info.get('name', '') if user_info else ''
         current_likes = user_info.get('likes', 0) if user_info else 0
         update_user_stats(target_uid, successful, username, current_likes)
-    
     return {
         'success': successful,
         'failed': failed,
@@ -447,9 +359,7 @@ async def send_single_ultra_fast(target_uid, encrypted_uid, account, url):
         token = await get_valid_token(account['uid'], account['password'])
         if not token:
             return {'status': 'failed', 'uid': account['uid']}
-        
         success, _ = await send_like_ultra_fast(encrypted_uid, token, url, account['uid'])
-        
         if success:
             return {'status': 'success', 'uid': account['uid']}
         else:
@@ -461,11 +371,9 @@ async def check_all_accounts_ultra_fast():
     accounts = load_accounts("IND")
     if not accounts:
         return
-    
     tasks = []
     for acc in accounts[:100]:
         tasks.append(check_single_account(acc))
-    
     await asyncio.gather(*tasks, return_exceptions=True)
 
 async def check_single_account(account):
@@ -509,7 +417,6 @@ def get_player_info(encrypted_uid, server_name, token):
         url = "https://client.us.freefiremobile.com/GetPlayerPersonalShow"
     else:
         url = "https://clientbp.ggpolarbear.com/GetPlayerPersonalShow"
-
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -518,7 +425,6 @@ def get_player_info(encrypted_uid, server_name, token):
         'X-GA': "v1 1",
         'ReleaseVersion': "OB54"
     }
-
     try:
         response = requests.post(url, data=edata, headers=headers, verify=False, timeout=10)
         return decode_protobuf(response.content)
@@ -530,11 +436,13 @@ LOGIN_HTML = '''
 <!DOCTYPE html>
 <html>
 <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .login-box { background: #141928; padding: 50px; border-radius: 16px; border: 1px solid #1e2a4a; max-width: 400px; width: 90%; position: relative; overflow: hidden; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-box { background: #141928; padding: 40px 30px; border-radius: 16px; border: 1px solid #1e2a4a; max-width: 400px; width: 90%; position: relative; overflow: hidden; }
         .login-box::before { content: ''; position: absolute; top: -2px; left: -2px; right: -2px; bottom: -2px; background: linear-gradient(45deg, #ff1744, transparent, #ff1744, transparent); background-size: 300% 300%; animation: borderGlow 2s ease infinite; border-radius: 16px; z-index: -1; }
         @keyframes borderGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
         .login-box h1 { color: #ff1744; font-size: 2em; text-align: center; margin-bottom: 10px; }
@@ -563,25 +471,30 @@ LOGIN_HTML = '''
 </html>
 '''
 
-# DASHBOARD HTML
+# DASHBOARD HTML - NEW USER-FRIENDLY MOBILE VERSION
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
     <title>Auto-Like Dashboard</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; }
-        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 15px; margin-bottom: 25px; }
-        .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
-        .header h1 { font-size: 2.2em; }
-        .header .sub { opacity: 0.8; margin-top: 5px; font-size: 0.95em; }
-        .badge-auto { background: #4caf5022; color: #4caf50; padding: 6px 18px; border-radius: 20px; border: 1px solid #4caf50; display: inline-block; font-size: 0.9em; }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; padding-bottom: 30px; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
+
+        /* Header */
+        .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 20px; border-radius: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
+        .header h1 { font-size: 1.8em; }
+        .header .sub { opacity: 0.8; font-size: 0.85em; margin-top: 3px; }
+        .header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; width: 100%; }
+        .header-actions .btn { padding: 8px 14px; font-size: 0.85em; }
+        .badge-auto { background: #4caf5022; color: #4caf50; padding: 4px 12px; border-radius: 20px; border: 1px solid #4caf50; font-size: 0.85em; }
         .badge-reset { color: #ffc107; font-weight: bold; }
-        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 8px; }
+
+        /* Buttons */
+        .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .btn-refresh { background: #1a237e; color: #fff; }
         .btn-refresh:hover { background: #283593; }
         .btn-check { background: #ff6f00; color: #fff; }
@@ -598,104 +511,138 @@ DASHBOARD_HTML = '''
         .btn-like220:hover { background: #d84315; }
         .btn-logout { background: #1a2240; color: #fff; }
         .btn-logout:hover { background: #2a3a5a; }
-        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 25px; }
-        .status-card { background: #141928; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; transition: 0.3s; }
-        .status-card:hover { border-color: #4caf50; }
-        .status-card .num { font-size: 2.5em; font-weight: bold; }
-        .status-card .lbl { color: #8899bb; font-size: 0.85em; margin-top: 5px; }
-        .green { color: #4caf50; }
-        .red { color: #f44336; }
-        .yellow { color: #ffc107; }
-        .blue { color: #42a5f5; }
-        .purple { color: #ab47bc; }
-        .cyan { color: #26c6da; }
-        .panel { background: #141928; padding: 20px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 25px; }
-        .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
-        .input-group { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-        .input-group input { flex: 1; min-width: 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; }
+        .btn-auto-run { background: #4caf50; color: #fff; }
+        .btn-auto-run:hover { background: #2e7d32; }
+        .btn-auto-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        /* Status Grid */
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 12px; margin-bottom: 20px; }
+        .status-card { background: #141928; padding: 15px 10px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; }
+        .status-card .num { font-size: 2em; font-weight: bold; }
+        .status-card .lbl { color: #8899bb; font-size: 0.8em; margin-top: 4px; }
+
+        /* Panel */
+        .panel { background: #141928; padding: 18px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 20px; }
+        .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 12px; }
+        .input-group { display: flex; flex-wrap: wrap; gap: 8px; }
+        .input-group input { flex: 1 1 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; min-width: 150px; }
         .input-group input:focus { outline: none; border-color: #4caf50; }
-        .input-group .btn-group { display: flex; gap: 5px; flex-wrap: wrap; }
-        .user-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
-        .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; flex-wrap: wrap; }
+        .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
+
+        /* Queue list */
+        .user-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .user-item { background: #1a2240; padding: 8px 14px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid #2a3a5a; flex-wrap: wrap; font-size: 0.9em; }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
-        .user-item .stats { font-size: 0.8em; color: #8899bb; }
+        .user-item .stats { color: #8899bb; font-size: 0.8em; }
         .user-item .stats span { color: #4caf50; font-weight: bold; }
         .user-item .del-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
+
+        /* Tables */
         .table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 15px; }
-        th { background: #1e2a4a; padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
-        td { padding: 12px 15px; border-bottom: 1px solid #1a2240; font-size: 0.9em; }
-        .badge { padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
+        table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
+        th { background: #1e2a4a; padding: 10px 12px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
+        td { padding: 10px 12px; border-bottom: 1px solid #1a2240; }
+        .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
         .badge-working { background: #4caf5022; color: #4caf50; border: 1px solid #4caf50; }
         .badge-timeout { background: #f4433622; color: #f44336; border: 1px solid #f44336; }
         .badge-reset { background: #ffc10722; color: #ffc107; border: 1px solid #ffc107; }
         .badge-unknown { background: #8899bb22; color: #8899bb; border: 1px solid #8899bb; }
-        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 15px; }
-        .user-stat-card { background: #1a2240; padding: 15px; border-radius: 10px; border: 1px solid #2a3a5a; }
-        .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1.1em; }
+
+        /* User stats cards */
+        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
+        .user-stat-card { background: #1a2240; padding: 14px; border-radius: 10px; border: 1px solid #2a3a5a; }
+        .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1em; }
         .user-stat-card .name { color: #fff; font-size: 0.9em; }
-        .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.85em; color: #8899bb; }
+        .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.85em; color: #8899bb; }
         .user-stat-card .row .val { color: #4caf50; font-weight: bold; }
         .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
-        .section-title { font-size: 1.3em; color: #fff; margin-top: 25px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
-        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; animation: pulse 1s infinite; }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
-        .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
-        .log-area { background: #0a0e1a; padding: 15px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.85em; border: 1px solid #1e2a4a; margin-top: 15px; }
-        .log-entry { padding: 4px 0; border-bottom: 1px solid #141928; }
+
+        /* Logs */
+        .log-area { background: #0a0e1a; padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 0.8em; border: 1px solid #1e2a4a; margin-top: 12px; }
+        .log-entry { padding: 3px 0; border-bottom: 1px solid #141928; }
         .log-time { color: #42a5f5; }
         .log-success { color: #4caf50; }
         .log-error { color: #f44336; }
         .log-info { color: #ffc107; }
-        @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(2, 1fr); } .header h1 { font-size: 1.5em; } }
-        @media (max-width: 480px) { .status-grid { grid-template-columns: 1fr 1fr; } .header-top { flex-direction: column; align-items: flex-start; } }
+
+        .section-title { font-size: 1.2em; color: #fff; margin: 20px 0 10px; display: flex; align-items: center; gap: 10px; }
+        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; animation: pulse 1s infinite; }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .note { color: #8899bb; font-size: 0.85em; margin-top: 8px; }
+
+        .status-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; align-items: center; }
+        .status-row .item { background: #1a2240; padding: 6px 15px; border-radius: 20px; font-size: 0.9em; border: 1px solid #2a3a5a; }
+
+        @media (max-width: 600px) {
+            .header h1 { font-size: 1.5em; }
+            .btn { font-size: 0.8em; padding: 8px 12px; }
+            .status-grid { grid-template-columns: repeat(3, 1fr); }
+            .user-item { width: 100%; }
+            .input-group input { min-width: 120px; }
+            .header-actions { flex-direction: column; align-items: stretch; }
+            .header-actions .btn { width: 100%; justify-content: center; }
+            .status-row { flex-direction: column; align-items: stretch; }
+        }
+        @media (max-width: 400px) {
+            .status-grid { grid-template-columns: 1fr 1fr; }
+        }
     </style>
 </head>
 <body>
     <div class="container">
+        <!-- Header -->
         <div class="header">
-            <div class="header-top">
-                <div>
-                    <h1>&#9889; Auto-Like Dashboard</h1>
-                    <div class="sub">Real-time monitoring &#8226; Auto-reset daily at 4:00 AM IST</div>
-                </div>
-                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                    <span class="badge-auto">&#9654; Auto-Like Running</span>
-                    <span>Next Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                    <button class="btn btn-refresh" onclick="location.reload()">&#8635; Refresh</button>
-                    <button class="btn btn-check" onclick="checkStatus()">&#128270; Check</button>
-                    <a href="/logout"><button class="btn btn-logout">&#128682; Logout</button></a>
-                </div>
+            <div>
+                <h1>&#9889; Auto-Like Dashboard</h1>
+                <div class="sub">Real-time monitoring · Auto-reset daily at 4:00 AM IST</div>
+            </div>
+            <div class="header-actions">
+                <span class="badge-auto">&#9654; Auto-Like Running</span>
+                <span>Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                <button class="btn btn-refresh" onclick="location.reload()">&#8635;</button>
+                <button class="btn btn-check" onclick="checkStatus()">&#128270;</button>
+                <button class="btn btn-auto-run" onclick="forceAutoRun()" id="forceAutoBtn">&#9655; Run Auto</button>
+                <a href="/logout"><button class="btn btn-logout">&#128682;</button></a>
             </div>
         </div>
 
-        <div class="status-grid">
-            <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">&#128203; Total Accounts</div></div>
-            <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">&#9989; Working Now</div></div>
-            <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">&#9888; Limit Reached</div></div>
-            <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">&#10084; Total Likes</div></div>
-            <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">&#128101; Targets Liked</div></div>
-            <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">&#128100; Auto Users</div></div>
+        <!-- Status Row -->
+        <div class="status-row">
+            <div class="item">Last Auto-Run: <span id="lastAutoRun">Never</span></div>
+            <div class="item">Status: <span id="autoRunStatus">Idle</span></div>
+            <div class="item">Message: <span id="autoRunMessage">-</span></div>
         </div>
 
+        <!-- Stats Cards -->
+        <div class="status-grid">
+            <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">&#128203; Accounts</div></div>
+            <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">&#9989; Working</div></div>
+            <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">&#9888; Limit</div></div>
+            <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">&#10084; Likes</div></div>
+            <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">&#128101; Targets</div></div>
+            <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">&#128100; Queue</div></div>
+        </div>
+
+        <!-- Send Likes Panel -->
         <div class="panel">
             <h2>&#9889; Send Likes</h2>
             <div class="input-group">
                 <input type="number" id="target-uid" placeholder="Enter Free Fire UID" />
                 <div class="btn-group">
-                    <button class="btn btn-like20" onclick="sendLikes(20)">&#43; 20 Likes</button>
-                    <button class="btn btn-like220" onclick="sendLikes(220)">&#43; 220 Likes</button>
-                    <button class="btn btn-like" onclick="sendLikes(492)">&#9889; All Likes</button>
+                    <button class="btn btn-like20" onclick="sendLikes(20)">20</button>
+                    <button class="btn btn-like220" onclick="sendLikes(220)">220</button>
+                    <button class="btn btn-like" onclick="sendLikes(492)">All</button>
                 </div>
             </div>
-            <div style="margin-top:10px;">
-                <button class="btn btn-add" onclick="addAutoUser()">&#43; Add to Auto-Queue</button>
+            <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">
+                <button class="btn btn-add" onclick="addAutoUser()">&#43; Add to Queue</button>
                 <button class="btn btn-del" onclick="deleteAllAuto()">&#10007; Clear Queue</button>
             </div>
             <div class="user-list" id="auto-user-list"></div>
-            <div class="note">&#9432; Enter UID and click any button. Successful likes automatically add UID to daily auto-queue (4 AM IST).</div>
+            <div class="note">&#9432; Enter UID and click like count. Successful likes automatically add to auto-queue.</div>
         </div>
 
+        <!-- Account Status Table -->
         <div class="section-title">&#128202; Account Status <span class="live-dot"></span></div>
         <div class="table-wrap">
             <table>
@@ -704,9 +651,11 @@ DASHBOARD_HTML = '''
             </table>
         </div>
 
+        <!-- Auto-Queue Users Stats -->
         <div class="section-title">&#128202; Auto-Queue Users</div>
         <div class="user-stats-grid" id="auto-queue-stats"></div>
 
+        <!-- Logs -->
         <div class="section-title">&#128202; Activity Log</div>
         <div class="log-area" id="log-area">
             <div class="log-entry"><span class="log-info">System ready.</span></div>
@@ -714,7 +663,15 @@ DASHBOARD_HTML = '''
     </div>
 
     <script>
-        // Load initial data
+        // Helper to format time
+        function formatTime(iso) {
+            if (!iso) return 'Never';
+            try {
+                const d = new Date(iso);
+                return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            } catch { return iso; }
+        }
+
         function loadData() {
             fetch('/api/dashboard-data')
                 .then(function(res) { return res.json(); })
@@ -726,15 +683,18 @@ DASHBOARD_HTML = '''
                     document.getElementById('targets-liked').textContent = data.targets_liked || 0;
                     document.getElementById('auto-users').textContent = data.auto_users || 0;
                     document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
+                    document.getElementById('lastAutoRun').textContent = data.last_auto_run ? formatTime(data.last_auto_run) : 'Never';
+                    document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
+                    document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
 
-                    // Auto-queue user list
+                    // Auto-queue list
                     var userHtml = '';
                     if (data.auto_queue && data.auto_queue.length > 0) {
                         data.auto_queue.forEach(function(uid) {
-                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, auto_likes_sent: 0 };
+                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, auto_sent: 0 };
                             userHtml += '<div class="user-item">' +
                                 '<span class="uid">' + uid + '</span>' +
-                                '<span class="stats">Total: <span>' + (s.total_likes||0) + '</span> | Today: <span>' + (s.today_likes||0) + '</span> | Auto: <span>' + (s.auto_likes_sent||0) + '</span></span>' +
+                                '<span class="stats">T:<span>' + (s.total_likes||0) + '</span> D:<span>' + (s.today_likes||0) + '</span> A:<span>' + (s.auto_sent||0) + '</span></span>' +
                                 '<button class="del-btn" onclick="removeAutoUser(\'' + uid + '\')">&#10005;</button>' +
                             '</div>';
                         });
@@ -751,8 +711,8 @@ DASHBOARD_HTML = '''
                             tableHtml += '<tr>' +
                                 '<td><strong>' + acc.uid + '</strong></td>' +
                                 '<td><span class="badge badge-' + cls + '">' + acc.status + '</span></td>' +
-                                '<td>' + (acc.last_check || 'Never') + '</td>' +
-                                '<td>' + (acc.reset_time || 'N/A') + '</td>' +
+                                '<td>' + (acc.last_check ? formatTime(acc.last_check) : 'Never') + '</td>' +
+                                '<td>' + (acc.reset_time ? formatTime(acc.reset_time) : 'N/A') + '</td>' +
                                 '<td>' + (acc.last_error || 'None') + '</td>' +
                             '</tr>';
                         });
@@ -765,14 +725,14 @@ DASHBOARD_HTML = '''
                     var statsHtml = '';
                     if (data.auto_queue && data.auto_queue.length > 0) {
                         data.auto_queue.forEach(function(uid) {
-                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, last_like: null, username: '', current_likes: 0, auto_likes_sent: 0 };
+                            var s = data.user_stats[uid] || { total_likes: 0, today_likes: 0, last_like: null, username: '', current_likes: 0, auto_sent: 0 };
                             statsHtml += '<div class="user-stat-card">' +
                                 '<div class="uid">UID: ' + uid + '</div>' +
-                                '<div class="name">Name: ' + (s.username || 'Unknown') + '</div>' +
-                                '<div class="row"><span>Total Likes</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
-                                '<div class="row"><span>Today\'s Likes</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
-                                '<div class="row"><span>Auto Likes Sent</span><span class="val">' + (s.auto_likes_sent||0) + '</span></div>' +
-                                '<div class="last">Last: ' + (s.last_like || 'Never') + '</div>' +
+                                '<div class="name">' + (s.username || 'Unknown') + '</div>' +
+                                '<div class="row"><span>Total</span><span class="val">' + (s.total_likes||0) + '</span></div>' +
+                                '<div class="row"><span>Today</span><span class="val">' + (s.today_likes||0) + '</span></div>' +
+                                '<div class="row"><span>Auto Sent</span><span class="val">' + (s.auto_sent||0) + '</span></div>' +
+                                '<div class="last">Last: ' + (s.last_like ? formatTime(s.last_like) : 'Never') + '</div>' +
                             '</div>';
                         });
                     } else {
@@ -809,7 +769,7 @@ DASHBOARD_HTML = '''
             if (!confirm('Send ' + count + ' likes to ' + uid + '?')) return;
             
             var btn = document.querySelector('.btn-like, .btn-like20, .btn-like220');
-            btn.textContent = '⏳ Sending...';
+            btn.textContent = '⏳';
             btn.disabled = true;
             
             fetch('/send-likes', {
@@ -819,10 +779,10 @@ DASHBOARD_HTML = '''
             })
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                btn.textContent = '✔ Done';
+                btn.textContent = '✔';
                 btn.disabled = false;
                 if (data.success) {
-                    alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal Likes: ' + data.total_likes);
+                    alert('✅ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal: ' + data.total_likes);
                 } else {
                     alert('❌ Error: ' + (data.error || 'Unknown error'));
                 }
@@ -841,7 +801,7 @@ DASHBOARD_HTML = '''
             .then(function(res) { return res.json(); })
             .then(function(data) {
                 if (data.success) {
-                    alert('Added to auto-queue: ' + uid);
+                    alert('Added to queue: ' + uid);
                     loadData();
                 } else {
                     alert(data.message);
@@ -850,7 +810,7 @@ DASHBOARD_HTML = '''
         }
 
         function removeAutoUser(uid) {
-            if (!confirm('Remove ' + uid + ' from auto-queue?')) return;
+            if (!confirm('Remove ' + uid + ' from queue?')) return;
             fetch('/remove-auto-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -876,6 +836,24 @@ DASHBOARD_HTML = '''
             });
         }
 
+        function forceAutoRun() {
+            var btn = document.getElementById('forceAutoBtn');
+            btn.textContent = '⏳';
+            btn.disabled = true;
+            fetch('/force-auto-run', { method: 'POST' })
+                .then(function(res) { return res.json(); })
+                .then(function(data) {
+                    btn.textContent = '&#9655; Run Auto';
+                    btn.disabled = false;
+                    if (data.success) {
+                        alert('Auto-run triggered! Check logs for progress.');
+                    } else {
+                        alert('Error: ' + (data.error || 'Unknown'));
+                    }
+                    loadData();
+                });
+        }
+
         loadData();
         setInterval(loadData, 3000);
         setInterval(checkStatus, 10000);
@@ -895,11 +873,9 @@ def index():
 def login():
     username = request.form.get('username')
     password = request.form.get('password')
-    
     if username == 'admin' and password == 'admin123':
         session['logged_in'] = True
         return redirect('/')
-    
     return render_template_string(LOGIN_HTML)
 
 @app.route('/logout')
@@ -911,37 +887,30 @@ def logout():
 def dashboard_data():
     if not session.get('logged_in'):
         return jsonify({'error': 'Unauthorized'}), 401
-    
     accounts = load_accounts("IND")
     total = len(accounts)
-    
     working_count = 0
     timeout_count = 0
     account_list = []
-    
     for acc in accounts:
         uid = acc['uid']
         status_info = account_status.get(uid, {'status': 'unknown'})
         status = status_info.get('status', 'unknown')
-        
         if status == 'working':
             working_count += 1
         elif status == 'timeout':
             timeout_count += 1
-        
         account_list.append({
             'uid': uid,
             'status': status,
-            'last_check': status_info.get('last_check', 'Never'),
-            'reset_time': status_info.get('reset_time', 'N/A'),
-            'last_error': status_info.get('last_error', 'None')
+            'last_check': status_info.get('last_check'),
+            'reset_time': status_info.get('reset_time'),
+            'last_error': status_info.get('last_error')
         })
-    
     total_likes = sum(len(v) for v in liked_cache.values())
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
-    
-    # Get logs (last 50)
+    global last_auto_run, auto_run_status, auto_run_message
     logs = []
     try:
         with open('logs.txt', 'r') as f:
@@ -952,7 +921,6 @@ def dashboard_data():
                     logs.append({'time': parts[0], 'type': parts[1], 'message': parts[2]})
     except:
         pass
-    
     return jsonify({
         'total_accounts': total,
         'working_count': working_count,
@@ -964,7 +932,10 @@ def dashboard_data():
         'auto_queue': auto_queue,
         'user_stats': user_stats,
         'accounts': account_list,
-        'logs': logs
+        'logs': logs,
+        'last_auto_run': last_auto_run,
+        'auto_run_status': auto_run_status,
+        'auto_run_message': auto_run_message
     })
 
 @app.route('/api/check-status')
@@ -979,30 +950,21 @@ def send_likes_manual():
     server_name = data.get('server_name', 'IND').upper()
     key = data.get('key', 'JMLB')
     count = int(data.get('count', 20))
-    
     if key != "JMLB":
         return jsonify({'success': False, 'error': 'Invalid key'})
-    
     if not uid:
         return jsonify({'success': False, 'error': 'UID required'})
-    
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
         like_url = "https://client.us.freefiremobile.com/LikeProfile"
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
-    
-    # Send likes
     result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, count))
-    
-    # Add to auto-queue if not already
     if result['success'] > 0 and uid not in auto_queue:
         auto_queue.append(uid)
         save_users()
-        log_message(f"Added {uid} to auto-queue (manual like success)", "success")
-    
-    # Get user info
+        log_message(f"Added {uid} to auto-queue (manual like)", "success")
     user_info = asyncio.run(get_user_info(uid, server_name))
     if user_info:
         username = user_info.get('name', 'Unknown')
@@ -1010,7 +972,6 @@ def send_likes_manual():
         update_user_stats(uid, result['success'], username, current_likes)
     else:
         update_user_stats(uid, result['success'])
-    
     return jsonify({
         'success': result['success'] > 0,
         'likes_sent': result['success'],
@@ -1025,156 +986,104 @@ def send_likes_manual():
 def add_auto_user():
     data = request.get_json()
     uid = data.get('uid', '').strip()
-    
     if not uid:
         return jsonify({'success': False, 'message': 'UID required'})
-    
     if uid in auto_queue:
-        return jsonify({'success': False, 'message': 'UID already in auto-queue'})
-    
+        return jsonify({'success': False, 'message': 'UID already in queue'})
     auto_queue.append(uid)
     save_users()
     log_message(f"Added {uid} to auto-queue manually", "info")
-    return jsonify({'success': True, 'message': f'Added {uid} to auto-queue'})
+    return jsonify({'success': True, 'message': f'Added {uid}'})
 
 @app.route('/remove-auto-user', methods=['POST'])
 def remove_auto_user():
     data = request.get_json()
     uid = data.get('uid', '').strip()
-    
     if uid in auto_queue:
         auto_queue.remove(uid)
         save_users()
         log_message(f"Removed {uid} from auto-queue", "info")
         return jsonify({'success': True, 'message': f'Removed {uid}'})
-    
-    return jsonify({'success': False, 'message': 'UID not in auto-queue'})
+    return jsonify({'success': False, 'message': 'UID not in queue'})
 
 @app.route('/clear-auto-queue', methods=['POST'])
 def clear_auto_queue():
     auto_queue.clear()
     save_users()
-    log_message("Cleared entire auto-queue", "info")
-    return jsonify({'success': True, 'message': 'Auto-queue cleared'})
+    log_message("Cleared auto-queue", "info")
+    return jsonify({'success': True, 'message': 'Queue cleared'})
 
-@app.route('/like', methods=['GET'])
-def handle_requests():
-    # Legacy endpoint for backward compatibility
-    uid = request.args.get("uid")
-    server_name = request.args.get("server_name", "").upper()
-    key = request.args.get("key")
-    likes_param = request.args.get("likes")
-    requested_likes = int(likes_param) if likes_param and likes_param.isdigit() else None
+@app.route('/force-auto-run', methods=['POST'])
+def force_auto_run():
+    global last_auto_run, auto_run_status, auto_run_message
+    # Run auto-like in background
+    def run_auto():
+        global last_auto_run, auto_run_status, auto_run_message
+        try:
+            auto_run_status = "Running"
+            auto_run_message = "Starting auto-like..."
+            log_message("Manual auto-run triggered", "info")
+            asyncio.run(auto_like_once())
+            last_auto_run = datetime.now().isoformat()
+            auto_run_status = "Completed"
+            auto_run_message = "Auto-like cycle finished"
+            log_message("Manual auto-run completed", "success")
+        except Exception as e:
+            auto_run_status = "Error"
+            auto_run_message = str(e)
+            log_message(f"Manual auto-run error: {e}", "error")
+    threading.Thread(target=run_auto).start()
+    return jsonify({'success': True, 'message': 'Auto-run started'})
 
-    if key != "JMLB":
-        return jsonify({"error": "Invalid API key"}), 403
-
-    if not uid or not server_name:
-        return jsonify({"error": "UID and server_name required"}), 400
-
-    valid_servers = ["IND", "BR", "US", "SAC", "NA", "BD", "RU"]
-    if server_name not in valid_servers:
-        return jsonify({"error": "Invalid server"}), 400
-
-    limit = requested_likes if requested_likes and requested_likes > 0 else 50
-    if server_name == "IND":
-        like_url = "https://client.ind.freefiremobile.com/LikeProfile"
-    elif server_name in {"BR", "US", "SAC", "NA"}:
-        like_url = "https://client.us.freefiremobile.com/LikeProfile"
-    else:
-        like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
-    
-    result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, limit))
-    
-    # Add to auto-queue if success
-    if result['success'] > 0 and uid not in auto_queue:
-        auto_queue.append(uid)
+async def auto_like_once():
+    # Single auto-like cycle (no infinite loop)
+    log_message("Starting auto-like cycle", "info")
+    accounts = load_accounts("IND")
+    if not accounts:
+        log_message("No accounts for auto-like", "error")
+        return
+    for user_uid in auto_queue:
+        log_message(f"Processing auto-like for {user_uid}", "info")
+        result = await send_likes_ultra_fast(
+            user_uid,
+            "IND",
+            "https://client.ind.freefiremobile.com/LikeProfile",
+            220
+        )
+        if user_uid in user_stats:
+            user_stats[user_uid]['auto_sent'] = result['success']
+        else:
+            user_stats[user_uid] = {'auto_sent': result['success']}
         save_users()
-        log_message(f"Added {uid} to auto-queue (API like)", "success")
-    
-    return jsonify({
-        "LikesGivenByAPI": result['success'],
-        "total_accounts": len(load_accounts(server_name)),
-        "skipped_24hr": result.get('skipped', 0),
-        "accounts_used": result.get('accounts_used', 0),
-        "failed": result.get('failed', 0)
-    })
+        log_message(f"Sent {result['success']} likes to {user_uid}", "success")
+        await asyncio.sleep(3)
+    log_message("Auto-like cycle complete", "success")
 
-@app.route('/reset-cache', methods=['GET'])
-def reset_cache():
-    key = request.args.get("key")
-    if key != "JMLB":
-        return jsonify({"error": "Invalid key"}), 403
-    
-    reset_all_data()
-    return jsonify({"message": "All data reset", "credit": "@minister_69"})
-
-@app.route('/health', methods=['GET'])
-def health_check():
-    return jsonify({
-        "status": "healthy",
-        "accounts_loaded": len(load_accounts("IND")),
-        "server": "Railway",
-        "reset_time": "4:00 AM IST Daily",
-        "auto_queue": len(auto_queue)
-    })
-
-# Logging function
 def log_message(message, log_type="info"):
     timestamp = datetime.now().strftime("%H:%M:%S")
     with open('logs.txt', 'a') as f:
         f.write(f"{timestamp}|{log_type}|{message}\n")
     print(f"[{timestamp}] [{log_type.upper()}] {message}")
 
-# Background auto-like task
 async def auto_like_daily():
+    global last_auto_run, auto_run_status, auto_run_message
     log_message("Auto-like scheduler started", "info")
     while True:
         try:
             now = datetime.now()
             target_time = now.replace(hour=4, minute=0, second=0, microsecond=0)
-            
             if now.hour >= 4:
                 target_time = target_time + timedelta(days=1)
-            
             wait_seconds = (target_time - now).total_seconds()
             if wait_seconds > 0:
                 log_message(f"Next auto-like at {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
                 await asyncio.sleep(wait_seconds)
-            
-            log_message(f"Starting auto-like cycle at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
-            
-            # Get all accounts
-            accounts = load_accounts("IND")
-            if not accounts:
-                log_message("No accounts available for auto-like", "error")
-                await asyncio.sleep(60)
-                continue
-            
-            # Process each UID in auto_queue
-            for user_uid in auto_queue:
-                log_message(f"Processing auto-like for {user_uid}", "info")
-                
-                # Send 220 likes
-                result = await send_likes_ultra_fast(
-                    user_uid,
-                    "IND",
-                    "https://client.ind.freefiremobile.com/LikeProfile",
-                    220
-                )
-                
-                # Update auto_likes_sent
-                if user_uid in user_stats:
-                    user_stats[user_uid]['auto_likes_sent'] = result['success']
-                else:
-                    user_stats[user_uid] = {'auto_likes_sent': result['success']}
-                save_users()
-                
-                log_message(f"Sent {result['success']} likes to {user_uid}", "success")
-                await asyncio.sleep(3)  # Small delay between users
-            
-            log_message(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
-            
+            log_message(f"Daily auto-like starting at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
+            await auto_like_once()
+            last_auto_run = datetime.now().isoformat()
+            auto_run_status = "Completed"
+            auto_run_message = "Daily auto-like finished"
+            log_message("Daily auto-like cycle complete", "success")
         except Exception as e:
             log_message(f"Auto-like error: {str(e)}", "error")
             await asyncio.sleep(60)
@@ -1196,9 +1105,9 @@ auto_thread.start()
 
 threading.Thread(target=run_ultra_fast_check).start()
 
-log_message("System started - Ultra-Fast Auto-Like System", "info")
-log_message(f"Accounts loaded: {len(load_accounts('IND'))}", "info")
-log_message(f"Auto-queue users: {len(auto_queue)}", "info")
+log_message("System started - User-Friendly UI", "info")
+log_message(f"Accounts: {len(load_accounts('IND'))}", "info")
+log_message(f"Auto-queue: {len(auto_queue)}", "info")
 log_message("Auto-reset at 4:00 AM IST", "info")
 
 if __name__ == '__main__':
