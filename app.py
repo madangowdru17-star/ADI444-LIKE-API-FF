@@ -30,18 +30,15 @@ app = Flask(__name__)
 KEY_LIMIT = 500
 tracker = defaultdict(lambda: [0, time.time()])
 
-# NEW: Persistent storage for liked UIDs
 LIKED_DATA_FILE = "liked_data.pkl"
-liked_cache = defaultdict(set)  # target_uid -> set of account_uids that liked it
-like_timestamps = {}  # target_uid -> timestamp when liked
+liked_cache = defaultdict(set)
+like_timestamps = {}
 
-# NEW: Daily reset at 3 AM IST
 RESET_HOUR = 3
 RESET_MINUTE = 0
 RESET_SECOND = 0
 
 def load_liked_data():
-    """Load liked data from file"""
     global liked_cache, like_timestamps
     try:
         if os.path.exists(LIKED_DATA_FILE):
@@ -57,7 +54,6 @@ def load_liked_data():
         like_timestamps = {}
 
 def save_liked_data():
-    """Save liked data to file"""
     try:
         data = {
             'liked_cache': liked_cache,
@@ -65,12 +61,10 @@ def save_liked_data():
         }
         with open(LIKED_DATA_FILE, 'wb') as f:
             pickle.dump(data, f)
-        print(f"💾 Saved liked data: {len(liked_cache)} entries")
     except Exception as e:
         print(f"❌ Error saving liked data: {e}")
 
 def is_uid_liked_in_24hrs(target_uid, account_uid):
-    """Check if this account already liked this UID in last 24 hours"""
     key = f"{account_uid}:{target_uid}"
     if key in like_timestamps:
         last_liked = datetime.fromtimestamp(like_timestamps[key])
@@ -79,55 +73,40 @@ def is_uid_liked_in_24hrs(target_uid, account_uid):
     return False
 
 def mark_as_liked(target_uid, account_uid):
-    """Mark that this account liked this UID"""
     key = f"{account_uid}:{target_uid}"
     like_timestamps[key] = datetime.now().timestamp()
     liked_cache[target_uid].add(account_uid)
     save_liked_data()
 
 def get_next_reset_time():
-    """Get next reset time at 3 AM IST"""
     now = datetime.now()
     reset_time = datetime(now.year, now.month, now.day, RESET_HOUR, RESET_MINUTE, RESET_SECOND)
-    
-    # If current time is past today's reset, set to tomorrow
     if now >= reset_time:
         reset_time += timedelta(days=1)
-    
     return reset_time
 
 def daily_reset_task():
-    """Background task to reset at 3 AM IST daily"""
     while True:
         try:
             next_reset = get_next_reset_time()
             wait_seconds = (next_reset - datetime.now()).total_seconds()
-            
             if wait_seconds > 0:
                 print(f"⏰ Next reset at: {next_reset.strftime('%Y-%m-%d %H:%M:%S')} IST")
                 time.sleep(wait_seconds)
-            
-            # Perform reset
             print(f"🔄 Performing daily reset at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
             reset_liked_data()
-            
         except Exception as e:
             print(f"❌ Reset task error: {e}")
             time.sleep(60)
 
 def reset_liked_data():
-    """Reset all liked data (called at 3 AM IST)"""
     global liked_cache, like_timestamps
     liked_cache.clear()
     like_timestamps.clear()
     save_liked_data()
     print(f"✅ Reset complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
-    print(f"📊 Cache cleared - all accounts can like again")
 
-# Load existing data on startup
 load_liked_data()
-
-# Start background reset thread
 reset_thread = threading.Thread(target=daily_reset_task, daemon=True)
 reset_thread.start()
 print("🚀 Background reset task started")
@@ -188,10 +167,9 @@ async def generate_jwt_token(uid, password):
         url = f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={encoded_password}"
         
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=24) as response:
+            async with session.get(url, timeout=10) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
                     if isinstance(data, dict):
                         if 'jwt_token' in data:
                             return data['jwt_token']
@@ -252,68 +230,18 @@ async def send_like(encrypted_uid, token, url):
         }
         
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=edata, headers=headers, timeout=8) as response:
+            async with session.post(url, data=edata, headers=headers, timeout=5) as response:
                 return response.status
     except:
         return 500
 
-async def send_likes_sequential(target_uid, server_name, url, limit):
-    """Send likes one by one until limit reached, checking 24-hour rule"""
+async def send_likes_fast(target_uid, server_name, url, limit):
+    """FAST concurrent like sender - uses all accounts in parallel"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit, 'skipped_24hr': 0}
     
-    random.shuffle(accounts)
-    success_count = 0
-    failed_count = 0
-    skipped_count = 0
-    
-    protobuf_message = create_protobuf_message(target_uid, server_name)
-    encrypted_uid = encrypt_message(protobuf_message)
-    
-    for acc in accounts:
-        if success_count >= limit:
-            break
-        
-        # CHECK: Has this account liked this UID in last 24 hours?
-        if is_uid_liked_in_24hrs(target_uid, acc['uid']):
-            skipped_count += 1
-            continue
-        
-        token = await get_valid_token(acc['uid'], acc['password'])
-        if not token:
-            failed_count += 1
-            continue
-        
-        status = await send_like(encrypted_uid, token, url)
-        if status == 200:
-            success_count += 1
-            # Mark this account as having liked this UID
-            mark_as_liked(target_uid, acc['uid'])
-            print(f"✅ Like {success_count}/{limit} from {acc['uid']}")
-        else:
-            failed_count += 1
-        
-        await asyncio.sleep(0.3)
-    
-    return {
-        'success': success_count,
-        'failed': failed_count,
-        'total': len(accounts),
-        'limit_requested': limit,
-        'skipped_24hr': skipped_count
-    }
-
-async def send_all_likes(target_uid, server_name, url):
-    region = server_name
-    protobuf_message = create_protobuf_message(target_uid, region)
-    encrypted_uid = encrypt_message(protobuf_message)
-    
-    accounts = load_accounts(server_name)
-    if not accounts: 
-        return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0, 'skipped_24hr': 0}
-    
-    # Filter: Skip accounts that already liked this UID in 24 hours
+    # Filter accounts that already liked in 24 hours
     fresh_accounts = []
     skipped_24hr = 0
     
@@ -323,9 +251,91 @@ async def send_all_likes(target_uid, server_name, url):
         else:
             fresh_accounts.append(acc)
     
-    print(f"📊 Total accounts: {len(accounts)}")
-    print(f"✅ Fresh accounts: {len(fresh_accounts)}")
-    print(f"⏭️ Skipped (24hr rule): {skipped_24hr}")
+    print(f"📊 Total: {len(accounts)}, Fresh: {len(fresh_accounts)}, Skipped: {skipped_24hr}")
+    
+    if not fresh_accounts:
+        return {
+            'success': 0, 
+            'failed': 0, 
+            'total': len(accounts),
+            'limit_requested': limit,
+            'skipped_24hr': skipped_24hr
+        }
+    
+    random.shuffle(fresh_accounts)
+    
+    # Limit to requested amount
+    accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
+    
+    # Prepare encrypted message once
+    protobuf_message = create_protobuf_message(target_uid, server_name)
+    encrypted_uid = encrypt_message(protobuf_message)
+    
+    # Create semaphore for concurrency (higher = faster)
+    semaphore = asyncio.Semaphore(30)  # Increased for speed
+    
+    tasks = []
+    for acc in accounts_to_use:
+        tasks.append(send_like_fast(target_uid, encrypted_uid, acc, url, semaphore, server_name))
+    
+    # Run all tasks concurrently
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    successful = 0
+    failed = 0
+    
+    for r in results:
+        if isinstance(r, dict):
+            if r.get('status') == 200:
+                successful += 1
+                mark_as_liked(target_uid, r['uid'])
+            else:
+                failed += 1
+        else:
+            failed += 1
+    
+    return {
+        'success': successful,
+        'failed': failed,
+        'total': len(accounts),
+        'limit_requested': limit,
+        'skipped_24hr': skipped_24hr,
+        'accounts_used': len(accounts_to_use)
+    }
+
+async def send_like_fast(target_uid, encrypted_uid, account, url, semaphore, server_name):
+    """Fast individual like sender"""
+    async with semaphore:
+        try:
+            token = await get_valid_token(account['uid'], account['password'])
+            if not token:
+                return {'status': 500, 'uid': account['uid']}
+            
+            status = await send_like(encrypted_uid, token, url)
+            return {'status': status, 'uid': account['uid']}
+        except:
+            return {'status': 500, 'uid': account['uid']}
+
+async def send_likes_old_concurrent(target_uid, server_name, url):
+    """Legacy concurrent sender (kept for backward compatibility)"""
+    region = server_name
+    protobuf_message = create_protobuf_message(target_uid, region)
+    encrypted_uid = encrypt_message(protobuf_message)
+    
+    accounts = load_accounts(server_name)
+    if not accounts: 
+        return {'success': 0, 'failed': 0, 'total': 0, 'already_liked': 0, 'skipped_24hr': 0}
+    
+    fresh_accounts = []
+    skipped_24hr = 0
+    
+    for acc in accounts:
+        if is_uid_liked_in_24hrs(target_uid, acc['uid']):
+            skipped_24hr += 1
+        else:
+            fresh_accounts.append(acc)
+    
+    print(f"📊 Total: {len(accounts)}, Fresh: {len(fresh_accounts)}, Skipped: {skipped_24hr}")
     
     if not fresh_accounts:
         return {
@@ -339,7 +349,7 @@ async def send_all_likes(target_uid, server_name, url):
     
     random.shuffle(fresh_accounts)
     
-    semaphore = asyncio.Semaphore(15)
+    semaphore = asyncio.Semaphore(30)
     tasks = []
     for acc in fresh_accounts[:1000]:
         tasks.append(process_account(target_uid, encrypted_uid, acc, url, semaphore, server_name))
@@ -486,11 +496,12 @@ def handle_requests():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
+    # FAST MODE - Always use concurrent sending
     if requested_likes and requested_likes > 0:
-        result = asyncio.run(send_likes_sequential(uid, server_name, like_url, requested_likes))
+        result = asyncio.run(send_likes_fast(uid, server_name, like_url, requested_likes))
         success_count = result['success']
     else:
-        result = asyncio.run(send_all_likes(uid, server_name, like_url))
+        result = asyncio.run(send_likes_old_concurrent(uid, server_name, like_url))
         success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -511,8 +522,6 @@ def handle_requests():
             count += 1
         
         remains = KEY_LIMIT - count
-        
-        # Get next reset time
         next_reset = get_next_reset_time()
 
         return jsonify({
@@ -527,6 +536,7 @@ def handle_requests():
             "total_accounts": len(accounts),
             "limit_requested": requested_likes if requested_likes else "all",
             "skipped_24hr_rule": result.get('skipped_24hr', 0),
+            "accounts_used": result.get('accounts_used', 0),
             "next_reset_at": next_reset.strftime('%Y-%m-%d %H:%M:%S IST')
         })
     except Exception as e:
@@ -578,7 +588,7 @@ def home():
     return jsonify({
         "message": "✅ API is running!",
         "endpoints": {
-            "/like": "Send likes to a UID (checks 24-hour rule)",
+            "/like": "Send likes to a UID (FAST concurrent mode)",
             "/health": "Check API health",
             "/reset-cache": "Reset liked cache",
             "/stats": "View statistics"
@@ -586,6 +596,7 @@ def home():
         "usage": "/like?uid=TARGET_UID&server_name=IND&key=JMLB&likes=10",
         "24hr_rule": "Each account can only like a UID once every 24 hours",
         "reset_time": "3:00 AM IST Daily",
+        "speed": "🚀 FAST concurrent mode - sends up to 30 likes simultaneously",
         "credit": "@minister_69"
     })
 
@@ -595,4 +606,5 @@ if __name__ == '__main__':
     print("🚀 Server started on Railway!")
     print("📁 Account files loaded")
     print("⏰ 24-hour rule active - resets daily at 3 AM IST")
+    print("⚡ FAST MODE: Sending 30 likes simultaneously!")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
