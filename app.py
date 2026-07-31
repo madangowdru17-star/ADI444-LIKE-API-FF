@@ -465,38 +465,7 @@ WEBSITE_HTML = '''
     <title>Auto-Like System</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; overflow-x: hidden; }
-        
-        #loading-screen {
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: #0a0e1a;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            z-index: 99999;
-            transition: opacity 0.8s ease;
-        }
-        #loading-screen.hidden { opacity: 0; pointer-events: none; }
-        
-        .loader-ring {
-            width: 80px;
-            height: 80px;
-            border: 4px solid #1a2240;
-            border-top: 4px solid #ff1744;
-            border-radius: 50%;
-            animation: spin 0.6s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-        
-        .loading-text { margin-top: 25px; color: #8899bb; font-size: 1.1em; letter-spacing: 2px; }
-        .loading-text span { color: #ff1744; animation: blink 1s infinite; }
-        @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
-        
-        .loading-bar { width: 200px; height: 2px; background: #1a2240; margin-top: 15px; border-radius: 2px; overflow: hidden; }
-        .loading-bar-fill { height: 100%; background: linear-gradient(90deg, #ff1744, #ff6b6b); width: 100%; animation: fill 2.5s ease forwards; }
-        @keyframes fill { 0% { width: 0%; } 100% { width: 100%; } }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; }
         
         #ddos-overlay {
             position: fixed;
@@ -507,7 +476,6 @@ WEBSITE_HTML = '''
             align-items: center;
             justify-content: center;
             z-index: 99998;
-            transition: opacity 0.8s ease;
         }
         #ddos-overlay.hidden { opacity: 0; pointer-events: none; }
         
@@ -804,20 +772,13 @@ WEBSITE_HTML = '''
 </head>
 <body>
 
-<div id="loading-screen">
-    <div class="loader-ring"></div>
-    <div class="loading-text">Loading <span>...</span></div>
-    <div class="loading-bar"><div class="loading-bar-fill"></div></div>
-</div>
-
 <div id="ddos-overlay">
     <div class="ddos-box">
         <div class="ddos-icon">&#9888;</div>
         <h2>Security Verification</h2>
-        <p>Click the button below to verify access to the dashboard.</p>
-        <button class="verify-btn" onclick="showAdmin()">&#10003; Click to Verify</button>
+        <p>Enter admin credentials to access the dashboard.</p>
         
-        <div class="admin-section" id="admin-section">
+        <div class="admin-section" id="admin-section" style="display:block;">
             <input type="text" id="admin-user" placeholder="Username" value="admin" />
             <input type="password" id="admin-pass" placeholder="Password" value="admin123" />
             <button class="admin-btn" onclick="verifyAdmin()">&#128274; Login</button>
@@ -876,22 +837,13 @@ WEBSITE_HTML = '''
 </div>
 
 <script>
-    // Hide loading screen after 2.5 seconds
-    setTimeout(function() {
-        document.getElementById('loading-screen').classList.add('hidden');
-    }, 2500);
-
-    function showAdmin() {
-        document.getElementById('admin-section').style.display = 'block';
-    }
-
     function verifyAdmin() {
         var user = document.getElementById('admin-user').value;
         var pass = document.getElementById('admin-pass').value;
         
         if (user === 'admin' && pass === 'admin123') {
             document.getElementById('ddos-overlay').classList.add('hidden');
-            document.getElementById('main-dashboard').style.display = 'block';
+            document.getElementById('main-dashboard').classList.add('visible');
             loadData();
             setInterval(loadData, 3000);
             setInterval(checkStatus, 10000);
@@ -1050,7 +1002,6 @@ WEBSITE_HTML = '''
         });
     }
 
-    // Auto check status every 10 seconds
     setInterval(checkStatus, 10000);
 </script>
 </body>
