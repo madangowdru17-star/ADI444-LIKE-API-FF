@@ -1,6 +1,6 @@
 # ------------------------------------------------------------
-#   FINAL VERSION – NO ACCOUNT STATUS TABLE, REAL LIKE RESPONSE
-#   Cyberpunk UI, all buttons, auto‑like, 24hr rule
+#   FINAL – ACCOUNTS LOAD, 20 LIKES, FULL PROFILE RESPONSE
+#   Cyberpunk UI with account status table
 # ------------------------------------------------------------
 
 from flask import Flask, request, jsonify, render_template_string
@@ -480,7 +480,7 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# ---------- HTML Dashboard (Cyberpunk, no account table) ----------
+# ---------- HTML Dashboard (Cyberpunk, full account table) ----------
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -578,6 +578,16 @@ DASHBOARD_HTML = '''
         .user-item .stats { color: #8899bb; font-size: 0.8em; }
         .user-item .stats span { color: #00ff66; font-weight: bold; }
         .user-item .del-btn { background: none; border: none; color: #ff0044; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
+
+        .table-wrap { overflow-x: auto; }
+        table { width: 100%; border-collapse: collapse; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
+        th { background: rgba(0,255,255,0.05); padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; border-bottom: 1px solid rgba(0,255,255,0.05); }
+        td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.03); }
+        .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
+        .badge-working { background: rgba(0,255,100,0.15); color: #00ff66; border: 1px solid #00ff66; }
+        .badge-timeout { background: rgba(255,0,50,0.15); color: #ff0044; border: 1px solid #ff0044; }
+        .badge-reset { background: rgba(255,200,0,0.15); color: #ffcc00; border: 1px solid #ffcc00; }
+        .badge-unknown { background: rgba(136,153,187,0.15); color: #8899bb; border: 1px solid #8899bb; }
 
         .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
         .user-stat-card { background: rgba(0,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid rgba(0,255,255,0.05); }
@@ -682,6 +692,16 @@ DASHBOARD_HTML = '''
             <div class="note"><i class="fas fa-info-circle"></i> Enter UID and click like count. Successful likes automatically add to auto-queue.</div>
         </div>
 
+        <!-- ACCOUNT STATUS TABLE – FIXED, SHOWS ALL ACCOUNTS -->
+        <div class="section-title"><i class="fas fa-table"></i> Account Status <span class="live-dot"></span></div>
+        <div id="account-error" class="error-msg" style="display:none;"><i class="fas fa-exclamation-circle"></i> <span id="error-text">No accounts loaded. Check account file.</span></div>
+        <div class="table-wrap glass" style="padding:0; overflow:hidden;">
+            <table>
+                <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
+                <tbody id="account-table"></tbody>
+            </table>
+        </div>
+
         <div class="section-title"><i class="fas fa-users"></i> Auto-Queue Users</div>
         <div class="user-stats-grid" id="auto-queue-stats"></div>
 
@@ -745,6 +765,24 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-user-list').innerHTML = userHtml;
 
+                    // ACCOUNT TABLE – THIS WILL SHOW ALL ACCOUNTS
+                    let tableHtml = '';
+                    if (data.accounts && data.accounts.length > 0) {
+                        data.accounts.forEach(acc => {
+                            const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
+                            tableHtml += `<tr>
+                                <td><strong>${acc.uid}</strong></td>
+                                <td><span class="badge badge-${cls}">${acc.status}</span></td>
+                                <td>${acc.last_check ? formatTime(acc.last_check) : 'Never'}</td>
+                                <td>${acc.reset_time ? formatTime(acc.reset_time) : 'N/A'}</td>
+                                <td>${acc.last_error || 'None'}</td>
+                            </tr>`;
+                        });
+                    } else {
+                        tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
+                    }
+                    document.getElementById('account-table').innerHTML = tableHtml;
+
                     let statsHtml = '';
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(uid => {
@@ -762,7 +800,6 @@ DASHBOARD_HTML = '''
                     }
                     document.getElementById('auto-queue-stats').innerHTML = statsHtml;
 
-                    // Logs
                     if (data.logs && data.logs.length > 0) {
                         let logHtml = '';
                         data.logs.forEach(log => {
@@ -809,7 +846,7 @@ DASHBOARD_HTML = '''
                 btn.innerHTML = '<i class="fas fa-check"></i>';
                 btn.disabled = false;
                 if (data.success) {
-                    alert(`✓ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal: ${data.total_likes}`);
+                    alert(`✓ Sent ${data.likes_sent} likes to ${data.username || uid}\nTotal: ${data.total_likes}\nBefore: ${data.likes_before}\nAfter: ${data.likes_after}\nVerified Added: ${data.verified_added}`);
                 } else {
                     alert('✗ Error: ' + (data.error || 'Unknown error'));
                 }
@@ -900,6 +937,7 @@ def dashboard_data():
     total = len(accounts)
     working_count = 0
     timeout_count = 0
+    account_list = []
     for acc in accounts:
         uid = acc['uid']
         status_info = account_status.get(uid, {'status': 'unknown'})
@@ -908,6 +946,13 @@ def dashboard_data():
             working_count += 1
         elif status == 'timeout':
             timeout_count += 1
+        account_list.append({
+            'uid': uid,
+            'status': status,
+            'last_check': status_info.get('last_check'),
+            'reset_time': status_info.get('reset_time'),
+            'last_error': status_info.get('last_error')
+        })
     total_likes = sum(len(v) for v in liked_cache.values())
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
@@ -931,6 +976,7 @@ def dashboard_data():
         'next_reset': next_reset,
         'users': auto_like_users,
         'user_stats': user_stats,
+        'accounts': account_list,
         'logs': logs,
         'last_auto_run': None,
         'auto_run_status': 'Idle',
@@ -987,7 +1033,7 @@ def send_likes_manual():
     if not uid:
         return jsonify({'success': False, 'error': 'UID required'})
 
-    # Get user info BEFORE sending
+    # Get user info BEFORE
     user_info_before = asyncio.run(get_user_info(uid, server_name))
     before_likes = user_info_before.get('likes', 0) if user_info_before else 0
     before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
@@ -1002,19 +1048,17 @@ def send_likes_manual():
     result = asyncio.run(send_likes_batch(uid, server_name, like_url, count))
     likes_sent = result['success']
 
-    # Get user info AFTER sending
+    # Get user info AFTER
     user_info_after = asyncio.run(get_user_info(uid, server_name))
     if user_info_after:
         username = user_info_after.get('name', 'Unknown')
         current_likes = user_info_after.get('likes', 0)
-        # Update stats
         update_user_stats(uid, likes_sent, username, current_likes)
         after_likes = current_likes
     else:
         after_likes = before_likes
         username = before_name
 
-    # Auto-add to queue if successful
     if likes_sent > 0 and uid not in auto_like_users:
         auto_like_users.append(uid)
         save_users()
@@ -1058,12 +1102,10 @@ async def auto_like_daily_once():
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
-    # Legacy endpoint with full profile response
     uid = request.args.get("uid")
     server_name = request.args.get("server_name", "").upper()
     key = request.args.get("key")
     client_ip = request.remote_addr
-
     likes_param = request.args.get("likes")
     requested_likes = int(likes_param) if likes_param and likes_param.isdigit() else None
 
@@ -1079,7 +1121,6 @@ def handle_requests():
     if not accounts:
         return jsonify({"error": f"No accounts for {server_name}"}), 500
 
-    # Check daily limit
     today_midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
     count, last_reset = tracker[client_ip]
     if last_reset < today_midnight:
@@ -1088,7 +1129,6 @@ def handle_requests():
     if count >= KEY_LIMIT:
         return jsonify({"error": "Daily limit reached", "remains": f"(0/{KEY_LIMIT})"}), 429
 
-    # Get user info BEFORE
     check_token = None
     for account in accounts[:5]:
         check_token = asyncio.run(get_valid_token(account['uid'], account['password']))
@@ -1108,7 +1148,6 @@ def handle_requests():
     except:
         return jsonify({"error": "Data parsing failed", "status": 0}), 200
 
-    # Send likes
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -1120,7 +1159,6 @@ def handle_requests():
     result = asyncio.run(send_likes_batch(uid, server_name, like_url, limit))
     success_count = result['success']
 
-    # Get user info AFTER
     after = get_player_info(encrypted_uid, server_name, check_token)
     if after is None:
         return jsonify({"error": "Could not verify likes", "status": 0}), 200
@@ -1134,7 +1172,6 @@ def handle_requests():
     except Exception as e:
         return jsonify({"error": str(e), "status": 0}), 500
 
-    # Update tracker
     if success_count > 0:
         tracker[client_ip][0] += 1
         count += 1
@@ -1181,7 +1218,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – Cyberpunk UI (No Account Table)")
+print("✅ Auto-Like System Started – Cyberpunk UI with Full Account Table")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
