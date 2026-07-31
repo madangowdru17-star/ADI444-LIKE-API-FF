@@ -23,6 +23,7 @@ import jwt
 from datetime import timedelta
 import pickle
 import threading
+import traceback
 
 TOKEN_CACHE = {}
 app = Flask(__name__)
@@ -31,14 +32,16 @@ KEY_LIMIT = 500
 tracker = defaultdict(lambda: [0, time.time()])
 
 LIKED_DATA_FILE = "liked_data.pkl"
-liked_cache = defaultdict(set)  # target_uid -> set of account_uids that successfully liked
-like_timestamps = {}  # key: "account_uid:target_uid" -> timestamp
+liked_cache = defaultdict(set)
+like_timestamps = {}
+
+# ERROR LOGGING
+ERROR_LOG = defaultdict(list)
 
 RESET_HOUR = 3
 RESET_MINUTE = 0
 RESET_SECOND = 0
 
-# Rate limiting bypass
 RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
 
 def load_liked_data():
@@ -68,7 +71,6 @@ def save_liked_data():
         print(f"❌ Error saving liked data: {e}")
 
 def is_uid_liked_in_24hrs(target_uid, account_uid):
-    """Check if account successfully liked this UID in last 24 hours"""
     key = f"{account_uid}:{target_uid}"
     if key in like_timestamps:
         last_liked = datetime.fromtimestamp(like_timestamps[key])
@@ -77,11 +79,20 @@ def is_uid_liked_in_24hrs(target_uid, account_uid):
     return False
 
 def mark_as_liked(target_uid, account_uid):
-    """ONLY mark if successfully liked (status 200)"""
     key = f"{account_uid}:{target_uid}"
     like_timestamps[key] = datetime.now().timestamp()
     liked_cache[target_uid].add(account_uid)
     save_liked_data()
+
+def log_error(account_uid, error_type, details):
+    ERROR_LOG[account_uid].append({
+        'time': datetime.now().isoformat(),
+        'error': error_type,
+        'details': details
+    })
+    # Keep only last 10 errors per account
+    if len(ERROR_LOG[account_uid]) > 10:
+        ERROR_LOG[account_uid].pop(0)
 
 def get_next_reset_time():
     now = datetime.now()
@@ -105,9 +116,10 @@ def daily_reset_task():
             time.sleep(60)
 
 def reset_liked_data():
-    global liked_cache, like_timestamps
+    global liked_cache, like_timestamps, ERROR_LOG
     liked_cache.clear()
     like_timestamps.clear()
+    ERROR_LOG.clear()
     save_liked_data()
     print(f"✅ Reset complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
 
@@ -181,7 +193,8 @@ async def generate_jwt_token(uid, password):
                         elif 'token' in data:
                             return data['token']
                 return None
-    except:
+    except Exception as e:
+        print(f"JWT Error for {uid}: {e}")
         return None
 
 async def get_valid_token(uid, password):
@@ -193,6 +206,7 @@ async def get_valid_token(uid, password):
 
     token = await generate_jwt_token(uid, password)
     if not token:
+        log_error(uid, "TOKEN_GENERATION_FAILED", "Could not generate JWT token")
         return None
 
     try:
@@ -202,7 +216,8 @@ async def get_valid_token(uid, password):
             "token": token,
             "expires_at": datetime.utcfromtimestamp(exp)
         }
-    except:
+    except Exception as e:
+        log_error(uid, "TOKEN_DECODE_ERROR", str(e))
         TOKEN_CACHE[uid] = {
             "token": token,
             "expires_at": datetime.utcnow() + timedelta(hours=24)
@@ -223,8 +238,8 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_with_retry(encrypted_uid, token, url, max_retries=3):
-    """Send like with retry and bypass rate limiting"""
+async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retries=3):
+    """Send like with retry and detailed error tracking"""
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -239,29 +254,37 @@ async def send_like_with_retry(encrypted_uid, token, url, max_retries=3):
             async with aiohttp.ClientSession() as session:
                 async with session.post(url, data=edata, headers=headers, timeout=5) as response:
                     if response.status == 200:
-                        return True
-                    elif response.status == 429:  # Rate limited - wait and retry
+                        return True, None
+                    elif response.status == 429:
+                        log_error(account_uid, "RATE_LIMITED", f"Attempt {attempt+1}")
                         await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS) * 2)
                         continue
-                    elif response.status in [401, 403]:  # Token expired
-                        return False
+                    elif response.status == 401:
+                        log_error(account_uid, "TOKEN_EXPIRED", "401 Unauthorized")
+                        return False, "token_expired"
+                    elif response.status == 403:
+                        log_error(account_uid, "FORBIDDEN", "403 Forbidden")
+                        return False, "forbidden"
                     else:
-                        # Other error - small delay then retry
+                        log_error(account_uid, "HTTP_ERROR", f"Status: {response.status}")
                         await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS))
                         continue
-        except:
-            await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS))
+        except asyncio.TimeoutError:
+            log_error(account_uid, "TIMEOUT", f"Attempt {attempt+1}")
+            continue
+        except Exception as e:
+            log_error(account_uid, "CONNECTION_ERROR", str(e))
             continue
     
-    return False
+    return False, "max_retries_exceeded"
 
 async def send_likes_ultra_fast(target_uid, server_name, url, limit):
-    """ULTRA FAST - Send likes concurrently with bypass"""
+    """ULTRA FAST - Send likes concurrently with error tracking"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0, 'limit_requested': limit, 'skipped_24hr': 0, 'rate_limited': 0}
     
-    # Filter accounts that already successfully liked in 24 hours
+    # Filter accounts
     fresh_accounts = []
     skipped_24hr = 0
     
@@ -271,7 +294,7 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
         else:
             fresh_accounts.append(acc)
     
-    print(f"📊 Total: {len(accounts)}, Fresh: {len(fresh_accounts)}, Skipped (24hr): {skipped_24hr}")
+    print(f"📊 Total: {len(accounts)}, Fresh: {len(fresh_accounts)}, Skipped: {skipped_24hr}")
     
     if not fresh_accounts:
         return {
@@ -284,62 +307,40 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
         }
     
     random.shuffle(fresh_accounts)
-    
-    # Use all fresh accounts up to limit
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
     
-    # Prepare encrypted message once
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
     
-    # HIGH CONCURRENCY for speed
-    semaphore = asyncio.Semaphore(50)  # 50 concurrent!
-    
+    semaphore = asyncio.Semaphore(50)
     tasks = []
     for acc in accounts_to_use:
         tasks.append(send_like_ultra_fast(target_uid, encrypted_uid, acc, url, semaphore, server_name))
     
-    # Run all tasks concurrently
     results = await asyncio.gather(*tasks, return_exceptions=True)
     
     successful = 0
     failed = 0
     rate_limited = 0
+    token_failed = 0
+    other_failed = 0
     
     for r in results:
         if isinstance(r, dict):
             if r.get('status') == 'success':
                 successful += 1
-                # ONLY mark as liked if successful!
                 mark_as_liked(target_uid, r['uid'])
             elif r.get('status') == 'rate_limited':
                 rate_limited += 1
                 failed += 1
+            elif r.get('status') == 'token_failed':
+                token_failed += 1
+                failed += 1
             else:
+                other_failed += 1
                 failed += 1
         else:
             failed += 1
-    
-    # If we hit rate limit, wait and retry failed ones
-    if rate_limited > 0 and failed > 0:
-        print(f"⚠️ Rate limited: {rate_limited}, retrying...")
-        await asyncio.sleep(2)
-        
-        # Retry failed accounts
-        retry_tasks = []
-        for r in results:
-            if isinstance(r, dict) and r.get('status') == 'rate_limited':
-                # Re-add failed accounts for retry
-                retry_tasks.append(send_like_ultra_fast(target_uid, encrypted_uid, r['account'], url, semaphore, server_name))
-        
-        if retry_tasks:
-            retry_results = await asyncio.gather(*retry_tasks, return_exceptions=True)
-            for r in retry_results:
-                if isinstance(r, dict) and r.get('status') == 'success':
-                    successful += 1
-                    mark_as_liked(target_uid, r['uid'])
-                else:
-                    failed += 1
     
     return {
         'success': successful,
@@ -348,28 +349,34 @@ async def send_likes_ultra_fast(target_uid, server_name, url, limit):
         'limit_requested': limit,
         'skipped_24hr': skipped_24hr,
         'rate_limited': rate_limited,
+        'token_failed': token_failed,
+        'other_failed': other_failed,
         'accounts_used': len(accounts_to_use)
     }
 
 async def send_like_ultra_fast(target_uid, encrypted_uid, account, url, semaphore, server_name):
-    """Ultra fast individual like sender with bypass"""
     async with semaphore:
         try:
-            # Random small delay to bypass rate limiting
             await asyncio.sleep(random.uniform(0.01, 0.05))
             
             token = await get_valid_token(account['uid'], account['password'])
             if not token:
-                return {'status': 'failed', 'uid': account['uid']}
+                log_error(account['uid'], "NO_TOKEN", "Failed to get valid token")
+                return {'status': 'token_failed', 'uid': account['uid']}
             
-            success = await send_like_with_retry(encrypted_uid, token, url)
+            success, error = await send_like_with_retry(encrypted_uid, token, url, account['uid'])
             
             if success:
                 return {'status': 'success', 'uid': account['uid']}
             else:
-                # Check if it was rate limiting
-                return {'status': 'rate_limited', 'uid': account['uid'], 'account': account}
+                if error == "token_expired":
+                    return {'status': 'token_failed', 'uid': account['uid']}
+                elif error == "rate_limited":
+                    return {'status': 'rate_limited', 'uid': account['uid']}
+                else:
+                    return {'status': 'failed', 'uid': account['uid']}
         except Exception as e:
+            log_error(account['uid'], "EXCEPTION", str(e))
             return {'status': 'failed', 'uid': account['uid']}
 
 def enc(uid):
@@ -479,12 +486,10 @@ def handle_requests():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
-    # Use ULTRA FAST mode
     if requested_likes and requested_likes > 0:
         result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, requested_likes))
         success_count = result['success']
     else:
-        # Default to 50 if no limit specified
         result = asyncio.run(send_likes_ultra_fast(uid, server_name, like_url, 50))
         success_count = result['success']
 
@@ -520,11 +525,14 @@ def handle_requests():
             "total_accounts": len(accounts),
             "limit_requested": requested_likes if requested_likes else "50 (default)",
             "skipped_24hr_successful": result.get('skipped_24hr', 0),
-            "rate_limited_retried": result.get('rate_limited', 0),
+            "rate_limited": result.get('rate_limited', 0),
+            "token_failed": result.get('token_failed', 0),
+            "other_failed": result.get('other_failed', 0),
             "accounts_used": result.get('accounts_used', 0),
             "failed": result.get('failed', 0),
             "next_reset_at": next_reset.strftime('%Y-%m-%d %H:%M:%S IST'),
-            "rule_24hr": "✅ Only successful likes count towards 24hr rule"
+            "rule_24hr": "✅ Only successful likes count towards 24hr rule",
+            "debug_errors": dict(ERROR_LOG)  # THIS SHOWS WHY ACCOUNTS FAIL!
         })
     except Exception as e:
         return jsonify({"error": str(e), "status": 0}), 500
@@ -535,11 +543,23 @@ def reset_cache():
     if key != "JMLB":
         return jsonify({"error": "Invalid key"}), 403
     
-    global liked_cache, like_timestamps
+    global liked_cache, like_timestamps, ERROR_LOG
     liked_cache.clear()
     like_timestamps.clear()
+    ERROR_LOG.clear()
     save_liked_data()
     return jsonify({"message": "Cache cleared - all accounts can like again", "credit": "@minister_69"})
+
+@app.route('/debug-errors', methods=['GET'])
+def debug_errors():
+    key = request.args.get("key")
+    if key != "JMLB":
+        return jsonify({"error": "Invalid key"}), 403
+    
+    return jsonify({
+        "error_log": dict(ERROR_LOG),
+        "total_errors": sum(len(v) for v in ERROR_LOG.values())
+    })
 
 @app.route('/stats', methods=['GET'])
 def get_stats():
@@ -550,13 +570,15 @@ def get_stats():
     total_likes = sum(len(v) for v in liked_cache.values())
     total_uids = len(liked_cache)
     next_reset = get_next_reset_time()
+    total_errors = sum(len(v) for v in ERROR_LOG.values())
     
     return jsonify({
         "total_uids_liked": total_uids,
         "total_successful_likes": total_likes,
         "next_reset_at": next_reset.strftime('%Y-%m-%d %H:%M:%S IST'),
         "reset_time": "3:00 AM IST Daily",
-        "rule": "Only successful likes count for 24hr rule"
+        "rule": "Only successful likes count for 24hr rule",
+        "total_errors": total_errors
     })
 
 @app.route('/health', methods=['GET'])
@@ -579,7 +601,8 @@ def home():
             "/like": "Send likes (ULTRA FAST - 50 concurrent)",
             "/health": "Check API health",
             "/reset-cache": "Reset liked cache",
-            "/stats": "View statistics"
+            "/stats": "View statistics",
+            "/debug-errors": "View error logs"
         },
         "usage": "/like?uid=TARGET_UID&server_name=IND&key=JMLB&likes=10",
         "24hr_rule": "✅ ONLY SUCCESSFUL LIKES count for 24hr rule",
@@ -595,4 +618,5 @@ if __name__ == '__main__':
     print("📁 Account files loaded")
     print("⏰ 24-hour rule: ONLY SUCCESSFUL LIKES count")
     print("⚡ ULTRA FAST: 50 concurrent likes with bypass!")
+    print("🔍 Debug endpoint: /debug-errors?key=JMLB")
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
