@@ -25,7 +25,6 @@ app = Flask(__name__)
 app.secret_key = 'your-secret-key-here'
 
 TOKEN_CACHE = {}
-
 KEY_LIMIT = 500
 tracker = defaultdict(lambda: [0, time.time()])
 
@@ -44,7 +43,7 @@ RESET_HOUR = 4
 RESET_MINUTE = 0
 RESET_SECOND = 0
 
-RATE_LIMIT_DELAYS = [0.05, 0.1, 0.15, 0.2, 0.3, 0.5]
+RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1, 0.15, 0.2]
 
 def load_users():
     global auto_like_users, user_stats
@@ -396,7 +395,7 @@ async def check_all_accounts_ultra_fast():
         return
     
     tasks = []
-    for acc in accounts[:50]:
+    for acc in accounts[:100]:
         tasks.append(check_single_account(acc))
     
     await asyncio.gather(*tasks, return_exceptions=True)
@@ -458,69 +457,23 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# LOGIN PAGE HTML
+# LOGIN PAGE
 LOGIN_HTML = '''
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Login - Auto-Like System</title>
+    <title>Login</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body { 
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; 
-            background: #0a0e1a; 
-            color: #ffffff; 
-            min-height: 100vh;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-        .login-box {
-            background: #141928;
-            padding: 50px;
-            border-radius: 16px;
-            border: 1px solid #1e2a4a;
-            max-width: 400px;
-            width: 90%;
-            position: relative;
-            overflow: hidden;
-        }
-        .login-box::before {
-            content: '';
-            position: absolute;
-            top: -2px; left: -2px; right: -2px; bottom: -2px;
-            background: linear-gradient(45deg, #ff1744, transparent, #ff1744, transparent);
-            background-size: 300% 300%;
-            animation: borderGlow 2s ease infinite;
-            border-radius: 16px;
-            z-index: -1;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+        .login-box { background: #141928; padding: 50px; border-radius: 16px; border: 1px solid #1e2a4a; max-width: 400px; width: 90%; position: relative; overflow: hidden; }
+        .login-box::before { content: ''; position: absolute; top: -2px; left: -2px; right: -2px; bottom: -2px; background: linear-gradient(45deg, #ff1744, transparent, #ff1744, transparent); background-size: 300% 300%; animation: borderGlow 2s ease infinite; border-radius: 16px; z-index: -1; }
         @keyframes borderGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
         .login-box h1 { color: #ff1744; font-size: 2em; text-align: center; margin-bottom: 10px; }
         .login-box p { color: #8899bb; text-align: center; margin-bottom: 30px; font-size: 0.95em; }
-        .login-box input {
-            width: 100%;
-            padding: 12px 15px;
-            border-radius: 8px;
-            border: 1px solid #1e2a4a;
-            background: #0a0e1a;
-            color: #fff;
-            font-size: 1em;
-            margin-bottom: 15px;
-        }
+        .login-box input { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; margin-bottom: 15px; }
         .login-box input:focus { outline: none; border-color: #ff1744; }
-        .login-box .login-btn {
-            width: 100%;
-            padding: 14px;
-            border: none;
-            border-radius: 8px;
-            background: linear-gradient(135deg, #ff1744, #d50000);
-            color: #fff;
-            font-size: 1.1em;
-            font-weight: bold;
-            cursor: pointer;
-            transition: 0.3s;
-        }
+        .login-box .login-btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: linear-gradient(135deg, #ff1744, #d50000); color: #fff; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: 0.3s; }
         .login-box .login-btn:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(255, 23, 68, 0.3); }
         .login-error { color: #ff1744; text-align: center; margin-top: 15px; display: none; }
         .icon { font-size: 3em; text-align: center; margin-bottom: 10px; }
@@ -531,13 +484,11 @@ LOGIN_HTML = '''
         <div class="icon">&#9888;</div>
         <h1>Auto-Like System</h1>
         <p>Enter credentials to access the dashboard</p>
-        
         <form method="POST" action="/login">
             <input type="text" name="username" placeholder="Username" value="admin" required />
             <input type="password" name="password" placeholder="Password" value="admin123" required />
             <button type="submit" class="login-btn">&#128274; Login</button>
         </form>
-        
         <div class="login-error" id="login-error">Invalid credentials!</div>
     </div>
 </body>
@@ -556,46 +507,13 @@ DASHBOARD_HTML = '''
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #ffffff; min-height: 100vh; }
         .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
-        
-        .header {
-            background: linear-gradient(135deg, #1a237e, #283593);
-            padding: 25px;
-            border-radius: 15px;
-            margin-bottom: 25px;
-        }
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 15px;
-        }
+        .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 25px; border-radius: 15px; margin-bottom: 25px; }
+        .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
         .header h1 { font-size: 2.2em; }
         .header .sub { opacity: 0.8; margin-top: 5px; font-size: 0.95em; }
-        
-        .badge-auto {
-            background: #4caf5022;
-            color: #4caf50;
-            padding: 6px 18px;
-            border-radius: 20px;
-            border: 1px solid #4caf50;
-            display: inline-block;
-            font-size: 0.9em;
-        }
+        .badge-auto { background: #4caf5022; color: #4caf50; padding: 6px 18px; border-radius: 20px; border: 1px solid #4caf50; display: inline-block; font-size: 0.9em; }
         .badge-reset { color: #ffc107; font-weight: bold; }
-        
-        .btn {
-            padding: 10px 20px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: bold;
-            font-size: 0.9em;
-            transition: 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-        }
+        .btn { padding: 10px 20px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 8px; }
         .btn-refresh { background: #1a237e; color: #fff; }
         .btn-refresh:hover { background: #283593; }
         .btn-check { background: #ff6f00; color: #fff; }
@@ -608,21 +526,8 @@ DASHBOARD_HTML = '''
         .btn-like:hover { background: #e65100; }
         .btn-logout { background: #1a2240; color: #fff; }
         .btn-logout:hover { background: #2a3a5a; }
-        
-        .status-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-        .status-card {
-            background: #141928;
-            padding: 20px;
-            border-radius: 12px;
-            text-align: center;
-            border: 1px solid #1e2a4a;
-            transition: 0.3s;
-        }
+        .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 15px; margin-bottom: 25px; }
+        .status-card { background: #141928; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #1e2a4a; transition: 0.3s; }
         .status-card:hover { border-color: #4caf50; }
         .status-card .num { font-size: 2.5em; font-weight: bold; }
         .status-card .lbl { color: #8899bb; font-size: 0.85em; margin-top: 5px; }
@@ -632,149 +537,39 @@ DASHBOARD_HTML = '''
         .blue { color: #42a5f5; }
         .purple { color: #ab47bc; }
         .cyan { color: #26c6da; }
-        
-        .panel {
-            background: #141928;
-            padding: 20px;
-            border-radius: 12px;
-            border: 1px solid #1e2a4a;
-            margin-bottom: 25px;
-        }
+        .panel { background: #141928; padding: 20px; border-radius: 12px; border: 1px solid #1e2a4a; margin-bottom: 25px; }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
-        
-        .input-group {
-            display: flex;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .input-group input {
-            flex: 1;
-            min-width: 200px;
-            padding: 12px 15px;
-            border-radius: 8px;
-            border: 1px solid #1e2a4a;
-            background: #0a0e1a;
-            color: #fff;
-            font-size: 1em;
-        }
+        .input-group { display: flex; gap: 10px; flex-wrap: wrap; }
+        .input-group input { flex: 1; min-width: 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid #1e2a4a; background: #0a0e1a; color: #fff; font-size: 1em; }
         .input-group input:focus { outline: none; border-color: #4caf50; }
-        
-        .user-list {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            margin-top: 15px;
-        }
-        .user-item {
-            background: #1a2240;
-            padding: 10px 15px;
-            border-radius: 20px;
-            display: flex;
-            align-items: center;
-            gap: 15px;
-            border: 1px solid #2a3a5a;
-            flex-wrap: wrap;
-        }
+        .user-list { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 15px; }
+        .user-item { background: #1a2240; padding: 10px 15px; border-radius: 20px; display: flex; align-items: center; gap: 15px; border: 1px solid #2a3a5a; flex-wrap: wrap; }
         .user-item .uid { font-weight: bold; color: #42a5f5; }
         .user-item .stats { font-size: 0.8em; color: #8899bb; }
         .user-item .stats span { color: #4caf50; font-weight: bold; }
-        .user-item .del-btn {
-            background: none;
-            border: none;
-            color: #f44336;
-            cursor: pointer;
-            font-size: 1.2em;
-            padding: 0 5px;
-        }
-        
+        .user-item .del-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
         .table-wrap { overflow-x: auto; }
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            background: #141928;
-            border-radius: 12px;
-            overflow: hidden;
-            margin-top: 15px;
-        }
-        th {
-            background: #1e2a4a;
-            padding: 12px 15px;
-            text-align: left;
-            font-weight: 600;
-            color: #8899bb;
-            white-space: nowrap;
-        }
-        td {
-            padding: 12px 15px;
-            border-bottom: 1px solid #1a2240;
-            font-size: 0.9em;
-        }
-        
-        .badge {
-            padding: 4px 12px;
-            border-radius: 20px;
-            font-size: 0.75em;
-            font-weight: bold;
-            display: inline-block;
-        }
+        table { width: 100%; border-collapse: collapse; background: #141928; border-radius: 12px; overflow: hidden; margin-top: 15px; }
+        th { background: #1e2a4a; padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
+        td { padding: 12px 15px; border-bottom: 1px solid #1a2240; font-size: 0.9em; }
+        .badge { padding: 4px 12px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
         .badge-working { background: #4caf5022; color: #4caf50; border: 1px solid #4caf50; }
         .badge-timeout { background: #f4433622; color: #f44336; border: 1px solid #f44336; }
         .badge-reset { background: #ffc10722; color: #ffc107; border: 1px solid #ffc107; }
         .badge-unknown { background: #8899bb22; color: #8899bb; border: 1px solid #8899bb; }
-        
-        .user-stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-            gap: 10px;
-            margin-top: 15px;
-        }
-        .user-stat-card {
-            background: #1a2240;
-            padding: 15px;
-            border-radius: 10px;
-            border: 1px solid #2a3a5a;
-        }
+        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; margin-top: 15px; }
+        .user-stat-card { background: #1a2240; padding: 15px; border-radius: 10px; border: 1px solid #2a3a5a; }
         .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1.1em; }
         .user-stat-card .name { color: #fff; font-size: 0.9em; }
-        .user-stat-card .row {
-            display: flex;
-            justify-content: space-between;
-            margin-top: 5px;
-            font-size: 0.85em;
-            color: #8899bb;
-        }
+        .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 5px; font-size: 0.85em; color: #8899bb; }
         .user-stat-card .row .val { color: #4caf50; font-weight: bold; }
         .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
-        
-        .section-title {
-            font-size: 1.3em;
-            color: #fff;
-            margin-top: 25px;
-            margin-bottom: 15px;
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-        .live-dot {
-            display: inline-block;
-            width: 10px;
-            height: 10px;
-            background: #4caf50;
-            border-radius: 50%;
-            animation: pulse 1s infinite;
-        }
+        .section-title { font-size: 1.3em; color: #fff; margin-top: 25px; margin-bottom: 15px; display: flex; align-items: center; gap: 10px; }
+        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; animation: pulse 1s infinite; }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
-        
         .note { color: #8899bb; font-size: 0.85em; margin-top: 10px; }
-        
-        @media (max-width: 768px) {
-            .status-grid { grid-template-columns: repeat(2, 1fr); }
-            .header h1 { font-size: 1.5em; }
-        }
-        @media (max-width: 480px) {
-            .status-grid { grid-template-columns: 1fr 1fr; }
-            .header-top { flex-direction: column; align-items: flex-start; }
-        }
+        @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(2, 1fr); } .header h1 { font-size: 1.5em; } }
+        @media (max-width: 480px) { .status-grid { grid-template-columns: 1fr 1fr; } .header-top { flex-direction: column; align-items: flex-start; } }
     </style>
 </head>
 <body>
@@ -977,8 +772,8 @@ DASHBOARD_HTML = '''
         }
 
         loadData();
-        setInterval(loadData, 3000);
-        setInterval(checkStatus, 10000);
+        setInterval(loadData, 2000);
+        setInterval(checkStatus, 5000);
     </script>
 </body>
 </html>
