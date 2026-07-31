@@ -431,7 +431,7 @@ def get_player_info(encrypted_uid, server_name, token):
         return None
 
 # ============================================================
-#   LOGIN PAGE (no emojis)
+#   LOGIN PAGE (clean)
 # ============================================================
 LOGIN_HTML = '''
 <!DOCTYPE html>
@@ -440,6 +440,7 @@ LOGIN_HTML = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
@@ -453,18 +454,18 @@ LOGIN_HTML = '''
         .login-box .login-btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: linear-gradient(135deg, #ff1744, #d50000); color: #fff; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: 0.3s; }
         .login-box .login-btn:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(255, 23, 68, 0.3); }
         .login-error { color: #ff1744; text-align: center; margin-top: 15px; display: none; }
-        .icon { font-size: 3em; text-align: center; margin-bottom: 10px; }
+        .icon { font-size: 3em; text-align: center; margin-bottom: 10px; color: #ff1744; }
     </style>
 </head>
 <body>
     <div class="login-box">
-        <div class="icon">&#9888;</div>
+        <div class="icon"><i class="fas fa-shield-alt"></i></div>
         <h1>Auto-Like System</h1>
         <p>Enter credentials to access the dashboard</p>
         <form method="POST" action="/login">
             <input type="text" name="username" placeholder="Username" value="admin" required />
             <input type="password" name="password" placeholder="Password" value="admin123" required />
-            <button type="submit" class="login-btn">&#128274; Login</button>
+            <button type="submit" class="login-btn"><i class="fas fa-sign-in-alt"></i> Login</button>
         </form>
         <div class="login-error" id="login-error">Invalid credentials!</div>
     </div>
@@ -473,7 +474,7 @@ LOGIN_HTML = '''
 '''
 
 # ============================================================
-#   DASHBOARD – no emojis, modern, mobile-first
+#   DASHBOARD – Font Awesome icons, no emojis
 # ============================================================
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
@@ -482,16 +483,16 @@ DASHBOARD_HTML = '''
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
     <title>Auto-Like Dashboard</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; padding-bottom: 30px; }
         .container { max-width: 1200px; margin: 0 auto; padding: 15px; }
 
         .header { background: linear-gradient(135deg, #1a237e, #283593); padding: 20px; border-radius: 15px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 1.8em; letter-spacing: 0.5px; }
+        .header h1 { font-size: 1.8em; }
         .header .sub { opacity: 0.8; font-size: 0.85em; margin-top: 3px; }
         .header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; width: 100%; }
-        .header-actions .btn { padding: 8px 14px; font-size: 0.85em; }
 
         .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
         .btn-refresh { background: #1a237e; color: #fff; }
@@ -569,6 +570,8 @@ DASHBOARD_HTML = '''
         .status-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; align-items: center; }
         .status-row .item { background: #1a2240; padding: 6px 15px; border-radius: 20px; font-size: 0.9em; border: 1px solid #2a3a5a; }
 
+        .error-msg { background: #ff174422; border: 1px solid #ff1744; color: #ff1744; padding: 15px; border-radius: 12px; margin: 10px 0; text-align: center; }
+
         @media (max-width: 600px) {
             .header h1 { font-size: 1.5em; }
             .btn { font-size: 0.8em; padding: 8px 12px; }
@@ -589,39 +592,39 @@ DASHBOARD_HTML = '''
         <!-- Header -->
         <div class="header">
             <div>
-                <h1>&#9889; Auto-Like Dashboard</h1>
-                <div class="sub">Real-time monitoring · Auto-reset daily at 4:00 AM IST</div>
+                <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
+                <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:00 AM IST</div>
             </div>
             <div class="header-actions">
-                <span class="badge-auto">&#9654; Auto-Like Running</span>
-                <span>Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                <button class="btn btn-refresh" onclick="location.reload()">&#8635;</button>
-                <button class="btn btn-check" onclick="checkStatus()">&#128270;</button>
-                <button class="btn btn-auto-run" onclick="forceAutoRun()" id="forceAutoBtn">&#9655; Run Auto</button>
-                <a href="/logout"><button class="btn btn-logout">&#128682;</button></a>
+                <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
+                <span><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                <button class="btn btn-refresh" onclick="location.reload()"><i class="fas fa-sync"></i></button>
+                <button class="btn btn-check" onclick="checkStatus()"><i class="fas fa-search"></i></button>
+                <button class="btn btn-auto-run" onclick="forceAutoRun()" id="forceAutoBtn"><i class="fas fa-play"></i> Run Auto</button>
+                <a href="/logout"><button class="btn btn-logout"><i class="fas fa-sign-out-alt"></i></button></a>
             </div>
         </div>
 
         <!-- Status Row -->
         <div class="status-row">
-            <div class="item">Last Auto-Run: <span id="lastAutoRun">Never</span></div>
-            <div class="item">Status: <span id="autoRunStatus">Idle</span></div>
-            <div class="item">Message: <span id="autoRunMessage">-</span></div>
+            <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
+            <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
+            <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
         </div>
 
         <!-- Stats Cards -->
         <div class="status-grid">
-            <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl">&#128203; Accounts</div></div>
-            <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl">&#9989; Working</div></div>
-            <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl">&#9888; Limit</div></div>
-            <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl">&#10084; Likes</div></div>
-            <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl">&#128101; Targets</div></div>
-            <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl">&#128100; Queue</div></div>
+            <div class="status-card"><div class="num blue" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
+            <div class="status-card"><div class="num green" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
+            <div class="status-card"><div class="num red" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
+            <div class="status-card"><div class="num purple" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
+            <div class="status-card"><div class="num yellow" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
+            <div class="status-card"><div class="num cyan" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
         </div>
 
         <!-- Send Likes Panel -->
         <div class="panel">
-            <h2>&#9889; Send Likes</h2>
+            <h2><i class="fas fa-paper-plane"></i> Send Likes</h2>
             <div class="input-group">
                 <input type="number" id="target-uid" placeholder="Enter Free Fire UID" />
                 <div class="btn-group">
@@ -631,15 +634,16 @@ DASHBOARD_HTML = '''
                 </div>
             </div>
             <div style="margin-top:10px; display:flex; flex-wrap:wrap; gap:8px;">
-                <button class="btn btn-add" onclick="addAutoUser()">&#43; Add to Queue</button>
-                <button class="btn btn-del" onclick="deleteAllAuto()">&#10007; Clear Queue</button>
+                <button class="btn btn-add" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add to Queue</button>
+                <button class="btn btn-del" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear Queue</button>
             </div>
             <div class="user-list" id="auto-user-list"></div>
-            <div class="note">&#9432; Enter UID and click like count. Successful likes automatically add to auto-queue.</div>
+            <div class="note"><i class="fas fa-info-circle"></i> Enter UID and click like count. Successful likes automatically add to auto-queue.</div>
         </div>
 
         <!-- Account Status Table -->
-        <div class="section-title">&#128202; Account Status <span class="live-dot"></span></div>
+        <div class="section-title"><i class="fas fa-table"></i> Account Status <span class="live-dot"></span></div>
+        <div id="account-error" class="error-msg" style="display:none;"><i class="fas fa-exclamation-circle"></i> <span id="error-text">No accounts loaded. Check account_ind.txt file.</span></div>
         <div class="table-wrap">
             <table>
                 <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
@@ -648,11 +652,11 @@ DASHBOARD_HTML = '''
         </div>
 
         <!-- Auto-Queue Users Stats -->
-        <div class="section-title">&#128202; Auto-Queue Users</div>
+        <div class="section-title"><i class="fas fa-users"></i> Auto-Queue Users</div>
         <div class="user-stats-grid" id="auto-queue-stats"></div>
 
         <!-- Logs -->
-        <div class="section-title">&#128202; Activity Log</div>
+        <div class="section-title"><i class="fas fa-terminal"></i> Activity Log</div>
         <div class="log-area" id="log-area">
             <div class="log-entry"><span class="log-info">System ready.</span></div>
         </div>
@@ -671,6 +675,13 @@ DASHBOARD_HTML = '''
             fetch('/api/dashboard-data')
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
+                    if (data.error) {
+                        document.getElementById('account-error').style.display = 'block';
+                        document.getElementById('error-text').textContent = data.error;
+                        return;
+                    }
+                    document.getElementById('account-error').style.display = 'none';
+
                     document.getElementById('total-accounts').textContent = data.total_accounts || 0;
                     document.getElementById('working-count').textContent = data.working_count || 0;
                     document.getElementById('timeout-count').textContent = data.timeout_count || 0;
@@ -689,7 +700,7 @@ DASHBOARD_HTML = '''
                             userHtml += '<div class="user-item">' +
                                 '<span class="uid">' + uid + '</span>' +
                                 '<span class="stats">T:<span>' + (s.total_likes||0) + '</span> D:<span>' + (s.today_likes||0) + '</span> A:<span>' + (s.auto_sent||0) + '</span></span>' +
-                                '<button class="del-btn" onclick="removeAutoUser(\'' + uid + '\')">&#10005;</button>' +
+                                '<button class="del-btn" onclick="removeAutoUser(\'' + uid + '\')"><i class="fas fa-times"></i></button>' +
                             '</div>';
                         });
                     } else {
@@ -742,6 +753,10 @@ DASHBOARD_HTML = '''
                         });
                         document.getElementById('log-area').innerHTML = logHtml;
                     }
+                })
+                .catch(function(err) {
+                    document.getElementById('account-error').style.display = 'block';
+                    document.getElementById('error-text').textContent = 'Failed to load data: ' + err.message;
                 });
         }
 
@@ -758,12 +773,12 @@ DASHBOARD_HTML = '''
             var uid = document.getElementById('target-uid').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
             if (!confirm('Send ' + count + ' likes to ' + uid + '?')) return;
-            
+
             var btns = document.querySelectorAll('.btn-like, .btn-like20, .btn-like220');
             var btn = btns[0];
-            btn.textContent = '⏳';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.disabled = true;
-            
+
             fetch('/send-likes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -771,12 +786,12 @@ DASHBOARD_HTML = '''
             })
             .then(function(res) { return res.json(); })
             .then(function(data) {
-                btn.textContent = '✔';
+                btn.innerHTML = '<i class="fas fa-check"></i>';
                 btn.disabled = false;
                 if (data.success) {
-                    alert('✔ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal: ' + data.total_likes);
+                    alert('✓ Sent ' + data.likes_sent + ' likes to ' + (data.username || uid) + '\nTotal: ' + data.total_likes);
                 } else {
-                    alert('✘ Error: ' + (data.error || 'Unknown error'));
+                    alert('✗ Error: ' + (data.error || 'Unknown error'));
                 }
                 loadData();
             });
@@ -830,12 +845,12 @@ DASHBOARD_HTML = '''
 
         function forceAutoRun() {
             var btn = document.getElementById('forceAutoBtn');
-            btn.textContent = '⏳';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
             btn.disabled = true;
             fetch('/force-auto-run', { method: 'POST' })
                 .then(function(res) { return res.json(); })
                 .then(function(data) {
-                    btn.textContent = '▶ Run Auto';
+                    btn.innerHTML = '<i class="fas fa-play"></i> Run Auto';
                     btn.disabled = false;
                     if (data.success) {
                         alert('Auto-run triggered! Check logs.');
@@ -882,6 +897,8 @@ def dashboard_data():
     if not session.get('logged_in'):
         return jsonify({'error': 'Unauthorized'}), 401
     accounts = load_accounts("IND")
+    if not accounts:
+        return jsonify({'error': 'No accounts found. Please check account_ind.txt file.'}), 200
     total = len(accounts)
     working_count = 0
     timeout_count = 0
@@ -1098,7 +1115,7 @@ auto_thread.start()
 
 threading.Thread(target=run_ultra_fast_check).start()
 
-log_message("System started – Modern UI", "info")
+log_message("System started – Modern UI (Font Awesome)", "info")
 log_message(f"Accounts: {len(load_accounts('IND'))}", "info")
 log_message(f"Auto-queue: {len(auto_queue)}", "info")
 log_message("Auto-reset at 4:00 AM IST", "info")
