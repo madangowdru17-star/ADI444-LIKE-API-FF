@@ -184,7 +184,6 @@ def reset_all_data():
 def load_accounts(server_name):
     """Load accounts from the appropriate file based on server."""
     try:
-        # Map server to filename
         server_map = {
             'IND': 'account_ind.txt',
             'BR': 'account_br.txt',
@@ -439,9 +438,9 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# ============================================================
-#   LOGIN PAGE (glass style)
-# ============================================================
+# ------------------------------------------------------------
+# LOGIN PAGE (cyberpunk style)
+# ------------------------------------------------------------
 LOGIN_HTML = '''
 <!DOCTYPE html>
 <html>
@@ -453,17 +452,17 @@ LOGIN_HTML = '''
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
-        .login-box { background: rgba(20, 25, 40, 0.8); backdrop-filter: blur(12px); padding: 40px 30px; border-radius: 16px; border: 1px solid rgba(255, 255, 255, 0.1); max-width: 400px; width: 90%; position: relative; overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.5); }
-        .login-box::before { content: ''; position: absolute; top: -2px; left: -2px; right: -2px; bottom: -2px; background: linear-gradient(45deg, #ff1744, transparent, #ff1744, transparent); background-size: 300% 300%; animation: borderGlow 2s ease infinite; border-radius: 16px; z-index: -1; }
+        .login-box { background: rgba(10,14,26,0.8); backdrop-filter: blur(20px); padding: 40px 30px; border-radius: 16px; border: 1px solid rgba(0,255,255,0.2); max-width: 400px; width: 90%; position: relative; overflow: hidden; box-shadow: 0 0 40px rgba(0,255,255,0.1); }
+        .login-box::before { content: ''; position: absolute; top: -2px; left: -2px; right: -2px; bottom: -2px; background: linear-gradient(45deg, #00ffff, transparent, #ff00ff, transparent); background-size: 300% 300%; animation: borderGlow 3s ease infinite; border-radius: 16px; z-index: -1; }
         @keyframes borderGlow { 0% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } 100% { background-position: 0% 50%; } }
-        .login-box h1 { color: #ff1744; font-size: 2em; text-align: center; margin-bottom: 10px; }
+        .login-box h1 { color: #00ffff; font-size: 2em; text-align: center; margin-bottom: 10px; text-shadow: 0 0 20px rgba(0,255,255,0.3); }
         .login-box p { color: #8899bb; text-align: center; margin-bottom: 30px; font-size: 0.95em; }
-        .login-box input { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 1em; margin-bottom: 15px; transition: 0.3s; }
-        .login-box input:focus { outline: none; border-color: #ff1744; box-shadow: 0 0 20px rgba(255,23,68,0.2); }
-        .login-box .login-btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: linear-gradient(135deg, #ff1744, #d50000); color: #fff; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: 0.3s; }
-        .login-box .login-btn:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(255, 23, 68, 0.3); }
-        .login-error { color: #ff1744; text-align: center; margin-top: 15px; display: none; }
-        .icon { font-size: 3em; text-align: center; margin-bottom: 10px; color: #ff1744; }
+        .login-box input { width: 100%; padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(0,255,255,0.2); background: rgba(0,0,0,0.4); color: #fff; font-size: 1em; margin-bottom: 15px; transition: 0.3s; }
+        .login-box input:focus { outline: none; border-color: #00ffff; box-shadow: 0 0 20px rgba(0,255,255,0.1); }
+        .login-box .login-btn { width: 100%; padding: 14px; border: none; border-radius: 8px; background: linear-gradient(135deg, #00ffff, #0088ff); color: #000; font-size: 1.1em; font-weight: bold; cursor: pointer; transition: 0.3s; }
+        .login-box .login-btn:hover { transform: scale(1.02); box-shadow: 0 0 30px rgba(0,255,255,0.3); }
+        .login-error { color: #ff0044; text-align: center; margin-top: 15px; display: none; }
+        .icon { font-size: 3em; text-align: center; margin-bottom: 10px; color: #00ffff; }
     </style>
 </head>
 <body>
@@ -482,9 +481,9 @@ LOGIN_HTML = '''
 </html>
 '''
 
-# ============================================================
-#   DASHBOARD – premium glass UI with server selector
-# ============================================================
+# ------------------------------------------------------------
+# DASHBOARD – cyberpunk / modder style
+# ------------------------------------------------------------
 DASHBOARD_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -501,28 +500,31 @@ DASHBOARD_HTML = '''
             color: #fff;
             min-height: 100vh;
             padding-bottom: 30px;
-            background-image: radial-gradient(circle at 10% 20%, rgba(255,23,68,0.05) 0%, transparent 50%);
+            background-image: radial-gradient(circle at 20% 20%, rgba(0,255,255,0.05) 0%, transparent 50%),
+                              radial-gradient(circle at 80% 80%, rgba(255,0,255,0.05) 0%, transparent 50%);
         }
         .container { max-width: 1400px; margin: 0 auto; padding: 15px; }
 
-        /* Glass card */
+        /* Glass panels with neon borders */
         .glass {
-            background: rgba(20, 25, 40, 0.6);
+            background: rgba(10,14,26,0.6);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(255,255,255,0.08);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
+            border: 1px solid rgba(0,255,255,0.15);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.5), 0 0 15px rgba(0,255,255,0.05);
             border-radius: 16px;
+            transition: 0.3s;
         }
+        .glass:hover { border-color: rgba(0,255,255,0.3); box-shadow: 0 8px 40px rgba(0,255,255,0.1); }
 
         .header { padding: 20px; margin-bottom: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; }
-        .header h1 { font-size: 1.8em; }
-        .header .sub { opacity: 0.7; font-size: 0.85em; margin-top: 3px; }
+        .header h1 { font-size: 1.8em; color: #00ffff; text-shadow: 0 0 20px rgba(0,255,255,0.3); }
+        .header .sub { opacity: 0.7; font-size: 0.85em; margin-top: 3px; color: #8899bb; }
         .header-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 10px; width: 100%; }
 
         .btn {
             padding: 10px 18px;
             border: none;
-            border-radius: 10px;
+            border-radius: 8px;
             cursor: pointer;
             font-weight: 600;
             font-size: 0.9em;
@@ -531,88 +533,92 @@ DASHBOARD_HTML = '''
             align-items: center;
             gap: 6px;
             text-decoration: none;
+            background: rgba(0,255,255,0.1);
+            color: #00ffff;
+            border: 1px solid rgba(0,255,255,0.2);
         }
-        .btn-refresh { background: #1a237e; color: #fff; }
-        .btn-refresh:hover { background: #283593; transform: translateY(-2px); }
-        .btn-check { background: #ff6f00; color: #fff; }
-        .btn-check:hover { background: #e65100; transform: translateY(-2px); }
-        .btn-add { background: #4caf50; color: #fff; }
-        .btn-add:hover { background: #388e3c; transform: translateY(-2px); }
-        .btn-del { background: #f44336; color: #fff; }
-        .btn-del:hover { background: #c62828; transform: translateY(-2px); }
-        .btn-like { background: #ff6f00; color: #fff; }
-        .btn-like:hover { background: #e65100; transform: translateY(-2px); }
-        .btn-like20 { background: #0d47a1; color: #fff; }
-        .btn-like20:hover { background: #1565c0; transform: translateY(-2px); }
-        .btn-like220 { background: #bf360c; color: #fff; }
-        .btn-like220:hover { background: #d84315; transform: translateY(-2px); }
-        .btn-logout { background: rgba(255,255,255,0.1); color: #fff; }
-        .btn-logout:hover { background: rgba(255,255,255,0.2); transform: translateY(-2px); }
-        .btn-auto-run { background: #4caf50; color: #fff; }
-        .btn-auto-run:hover { background: #2e7d32; transform: translateY(-2px); }
+        .btn:hover { background: rgba(0,255,255,0.2); transform: translateY(-2px); box-shadow: 0 0 20px rgba(0,255,255,0.1); }
+        .btn-refresh { background: rgba(0,100,255,0.2); border-color: rgba(0,100,255,0.3); color: #4488ff; }
+        .btn-refresh:hover { background: rgba(0,100,255,0.3); }
+        .btn-check { background: rgba(255,100,0,0.2); border-color: rgba(255,100,0,0.3); color: #ff8800; }
+        .btn-check:hover { background: rgba(255,100,0,0.3); }
+        .btn-add { background: rgba(0,255,100,0.2); border-color: rgba(0,255,100,0.3); color: #00ff66; }
+        .btn-add:hover { background: rgba(0,255,100,0.3); }
+        .btn-del { background: rgba(255,0,50,0.2); border-color: rgba(255,0,50,0.3); color: #ff0044; }
+        .btn-del:hover { background: rgba(255,0,50,0.3); }
+        .btn-like { background: rgba(255,100,0,0.2); border-color: rgba(255,100,0,0.3); color: #ff8800; }
+        .btn-like:hover { background: rgba(255,100,0,0.3); }
+        .btn-like20 { background: rgba(0,50,200,0.2); border-color: rgba(0,50,200,0.3); color: #4488ff; }
+        .btn-like20:hover { background: rgba(0,50,200,0.3); }
+        .btn-like220 { background: rgba(200,50,0,0.2); border-color: rgba(200,50,0,0.3); color: #ff6644; }
+        .btn-like220:hover { background: rgba(200,50,0,0.3); }
+        .btn-logout { background: rgba(255,255,255,0.05); border-color: rgba(255,255,255,0.1); color: #8899bb; }
+        .btn-logout:hover { background: rgba(255,255,255,0.1); }
+        .btn-auto-run { background: rgba(0,255,100,0.2); border-color: rgba(0,255,100,0.3); color: #00ff66; }
+        .btn-auto-run:hover { background: rgba(0,255,100,0.3); }
         .btn-auto-run:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
-        .badge-auto { background: rgba(76,175,80,0.2); color: #4caf50; padding: 4px 14px; border-radius: 20px; border: 1px solid #4caf50; font-size: 0.85em; }
-        .badge-reset { color: #ffc107; font-weight: bold; }
+        .badge-auto { background: rgba(0,255,100,0.15); color: #00ff66; padding: 4px 14px; border-radius: 20px; border: 1px solid #00ff66; font-size: 0.85em; }
+        .badge-reset { color: #ffcc00; font-weight: bold; }
 
         .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .status-card { padding: 18px 10px; text-align: center; transition: 0.3s; }
-        .status-card:hover { transform: translateY(-5px); border-color: rgba(255,255,255,0.2); }
+        .status-card:hover { transform: translateY(-5px); border-color: rgba(0,255,255,0.3); }
         .status-card .num { font-size: 2.2em; font-weight: bold; }
         .status-card .lbl { color: #8899bb; font-size: 0.8em; margin-top: 4px; }
 
         .panel { padding: 20px; margin-bottom: 20px; }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
         .input-group { display: flex; flex-wrap: wrap; gap: 10px; }
-        .input-group input { flex: 1 1 200px; padding: 12px 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 1em; min-width: 150px; transition: 0.3s; }
-        .input-group input:focus { outline: none; border-color: #4caf50; box-shadow: 0 0 20px rgba(76,175,80,0.1); }
+        .input-group input { flex: 1 1 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(0,255,255,0.15); background: rgba(0,0,0,0.4); color: #fff; font-size: 1em; min-width: 150px; transition: 0.3s; }
+        .input-group input:focus { outline: none; border-color: #00ffff; box-shadow: 0 0 20px rgba(0,255,255,0.05); }
         .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
 
         .server-selector { display: flex; align-items: center; gap: 10px; margin-bottom: 15px; flex-wrap: wrap; }
-        .server-selector select { padding: 10px 15px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); background: rgba(0,0,0,0.3); color: #fff; font-size: 1em; cursor: pointer; min-width: 120px; }
-        .server-selector select:focus { outline: none; border-color: #4caf50; }
+        .server-selector select { padding: 10px 15px; border-radius: 8px; border: 1px solid rgba(0,255,255,0.15); background: rgba(0,0,0,0.4); color: #fff; font-size: 1em; cursor: pointer; min-width: 120px; }
+        .server-selector select:focus { outline: none; border-color: #00ffff; }
 
         .user-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-        .user-item { background: rgba(255,255,255,0.05); padding: 8px 14px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(255,255,255,0.05); flex-wrap: wrap; font-size: 0.9em; }
-        .user-item .uid { font-weight: bold; color: #42a5f5; }
+        .user-item { background: rgba(0,255,255,0.05); padding: 8px 14px; border-radius: 20px; display: flex; align-items: center; gap: 10px; border: 1px solid rgba(0,255,255,0.1); flex-wrap: wrap; font-size: 0.9em; }
+        .user-item .uid { font-weight: bold; color: #00ffff; }
         .user-item .stats { color: #8899bb; font-size: 0.8em; }
-        .user-item .stats span { color: #4caf50; font-weight: bold; }
-        .user-item .del-btn { background: none; border: none; color: #f44336; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
+        .user-item .stats span { color: #00ff66; font-weight: bold; }
+        .user-item .del-btn { background: none; border: none; color: #ff0044; cursor: pointer; font-size: 1.2em; padding: 0 5px; }
 
         .table-wrap { overflow-x: auto; }
-        table { width: 100%; border-collapse: collapse; background: rgba(0,0,0,0.2); border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
-        th { background: rgba(255,255,255,0.05); padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; }
-        td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); }
+        table { width: 100%; border-collapse: collapse; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
+        th { background: rgba(0,255,255,0.05); padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; border-bottom: 1px solid rgba(0,255,255,0.05); }
+        td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.03); }
         .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
-        .badge-working { background: rgba(76,175,80,0.2); color: #4caf50; border: 1px solid #4caf50; }
-        .badge-timeout { background: rgba(244,67,54,0.2); color: #f44336; border: 1px solid #f44336; }
-        .badge-reset { background: rgba(255,193,7,0.2); color: #ffc107; border: 1px solid #ffc107; }
-        .badge-unknown { background: rgba(136,153,187,0.2); color: #8899bb; border: 1px solid #8899bb; }
+        .badge-working { background: rgba(0,255,100,0.15); color: #00ff66; border: 1px solid #00ff66; }
+        .badge-timeout { background: rgba(255,0,50,0.15); color: #ff0044; border: 1px solid #ff0044; }
+        .badge-reset { background: rgba(255,200,0,0.15); color: #ffcc00; border: 1px solid #ffcc00; }
+        .badge-unknown { background: rgba(136,153,187,0.15); color: #8899bb; border: 1px solid #8899bb; }
 
         .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
-        .user-stat-card { background: rgba(255,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05); }
-        .user-stat-card .uid { color: #42a5f5; font-weight: bold; font-size: 1em; }
+        .user-stat-card { background: rgba(0,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid rgba(0,255,255,0.05); }
+        .user-stat-card .uid { color: #00ffff; font-weight: bold; font-size: 1em; }
         .user-stat-card .name { color: #fff; font-size: 0.9em; }
         .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.85em; color: #8899bb; }
-        .user-stat-card .row .val { color: #4caf50; font-weight: bold; }
+        .user-stat-card .row .val { color: #00ff66; font-weight: bold; }
         .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
 
-        .log-area { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.8em; border: 1px solid rgba(255,255,255,0.05); margin-top: 12px; }
+        .log-area { background: rgba(0,0,0,0.4); padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.8em; border: 1px solid rgba(0,255,255,0.05); margin-top: 12px; }
         .log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
-        .log-time { color: #42a5f5; }
-        .log-success { color: #4caf50; }
-        .log-error { color: #f44336; }
-        .log-info { color: #ffc107; }
+        .log-time { color: #00ffff; }
+        .log-success { color: #00ff66; }
+        .log-error { color: #ff0044; }
+        .log-info { color: #ffcc00; }
 
         .section-title { font-size: 1.2em; color: #fff; margin: 25px 0 12px; display: flex; align-items: center; gap: 10px; }
-        .live-dot { display: inline-block; width: 10px; height: 10px; background: #4caf50; border-radius: 50%; animation: pulse 1s infinite; }
+        .live-dot { display: inline-block; width: 10px; height: 10px; background: #00ff66; border-radius: 50%; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(0,255,100,0.3); }
         @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
         .note { color: #8899bb; font-size: 0.85em; margin-top: 8px; }
 
         .status-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; align-items: center; }
-        .status-row .item { background: rgba(255,255,255,0.05); padding: 6px 15px; border-radius: 20px; font-size: 0.9em; border: 1px solid rgba(255,255,255,0.05); }
+        .status-row .item { background: rgba(0,255,255,0.05); padding: 6px 15px; border-radius: 20px; font-size: 0.9em; border: 1px solid rgba(0,255,255,0.05); }
 
-        .error-msg { background: rgba(255,23,68,0.1); border: 1px solid #ff1744; color: #ff1744; padding: 15px; border-radius: 12px; margin: 10px 0; text-align: center; }
+        .error-msg { background: rgba(255,0,50,0.1); border: 1px solid #ff0044; color: #ff0044; padding: 15px; border-radius: 12px; margin: 10px 0; text-align: center; }
 
         @media (max-width: 600px) {
             .header h1 { font-size: 1.5em; }
@@ -657,12 +663,12 @@ DASHBOARD_HTML = '''
 
         <!-- Stats Cards -->
         <div class="status-grid">
-            <div class="status-card glass"><div class="num blue" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
-            <div class="status-card glass"><div class="num green" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
-            <div class="status-card glass"><div class="num red" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
-            <div class="status-card glass"><div class="num purple" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
-            <div class="status-card glass"><div class="num yellow" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
-            <div class="status-card glass"><div class="num cyan" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
+            <div class="status-card glass"><div class="num" style="color:#4488ff;" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
+            <div class="status-card glass"><div class="num" style="color:#00ff66;" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
+            <div class="status-card glass"><div class="num" style="color:#ff0044;" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
+            <div class="status-card glass"><div class="num" style="color:#ff66ff;" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
+            <div class="status-card glass"><div class="num" style="color:#ffcc00;" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
+            <div class="status-card glass"><div class="num" style="color:#00ffff;" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
         </div>
 
         <!-- Server Selector + Send Likes Panel -->
@@ -724,7 +730,6 @@ DASHBOARD_HTML = '''
         function changeServer() {
             currentServer = document.getElementById('server-select').value;
             loadData();
-            // Also run status check for new server
             checkStatus();
         }
 
@@ -926,7 +931,6 @@ DASHBOARD_HTML = '''
                 });
         }
 
-        // Initial load
         loadData();
         setInterval(loadData, 3000);
         setInterval(checkStatus, 10000);
@@ -935,9 +939,9 @@ DASHBOARD_HTML = '''
 </html>
 '''
 
-# ============================================================
-#   ROUTES
-# ============================================================
+# ------------------------------------------------------------
+# ROUTES
+# ------------------------------------------------------------
 @app.route('/')
 def index():
     if session.get('logged_in'):
@@ -1035,7 +1039,6 @@ def send_likes_manual():
         return jsonify({'success': False, 'error': 'Invalid key'})
     if not uid:
         return jsonify({'success': False, 'error': 'UID required'})
-    # Determine like URL based on server
     if server_name == "IND":
         like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     elif server_name in {"BR", "US", "SAC", "NA"}:
@@ -1118,7 +1121,7 @@ def force_auto_run():
 
 async def auto_like_once():
     log_message("Starting auto-like cycle", "info")
-    # Use IND server for auto-like by default (or could be configurable)
+    # Use IND server for auto-like (could be made configurable)
     accounts = load_accounts("IND")
     if not accounts:
         log_message("No accounts for auto-like", "error")
@@ -1172,9 +1175,9 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# ============================================================
-#   STARTUP
-# ============================================================
+# ------------------------------------------------------------
+# STARTUP
+# ------------------------------------------------------------
 load_liked_data()
 load_account_status()
 load_users()
@@ -1188,7 +1191,7 @@ auto_thread.start()
 # Initial status check for IND
 threading.Thread(target=run_ultra_fast_check, args=("IND",)).start()
 
-log_message("System started – Premium UI with multi-server support", "info")
+log_message("System started – Cyberpunk UI with multi‑server support", "info")
 log_message(f"IND accounts: {len(load_accounts('IND'))}", "info")
 log_message(f"BD accounts: {len(load_accounts('BD'))}", "info")
 log_message(f"MENA accounts: {len(load_accounts('MENA'))}", "info")
