@@ -447,6 +447,7 @@ async def check_all_accounts_status():
 def run_status_check():
     asyncio.run(check_all_accounts_status())
 
+# AUTO LIKE WITH AUTO REMOVE
 async def auto_like_daily():
     print("Auto-like scheduler started")
     while True:
@@ -467,18 +468,55 @@ async def auto_like_daily():
                 await asyncio.sleep(60)
                 continue
             
+            # Process each user in auto queue
+            users_to_remove = []
             for user_uid in auto_like_users:
                 print(f"Processing user: {user_uid}")
+                
+                # Get user info BEFORE
+                user_info_before = await get_user_info(user_uid, "IND")
+                before_likes = user_info_before.get('likes', 0) if user_info_before else 0
+                before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
+                
+                # Send likes
                 result = await send_likes_rocket(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
                     AUTO_LIKE_LIMIT
                 )
-                print(f"Sent {result['success']} likes to {user_uid}")
+                likes_sent = result['success']
+                
+                # Get user info AFTER
+                user_info_after = await get_user_info(user_uid, "IND")
+                if user_info_after:
+                    after_likes = user_info_after.get('likes', 0)
+                    username = user_info_after.get('name', 'Unknown')
+                    update_user_stats(user_uid, likes_sent, username, after_likes)
+                    add_to_history(user_uid, likes_sent, before_likes, after_likes, username)
+                else:
+                    after_likes = before_likes
+                    username = before_name
+                
+                print(f"Sent {likes_sent} likes to {user_uid} (Before: {before_likes}, After: {after_likes})")
+                
+                # AUTO REMOVE: Remove user if likes were sent successfully
+                if likes_sent > 0:
+                    users_to_remove.append(user_uid)
+                    print(f"✅ Auto-remove: {user_uid} removed from queue (order complete)")
+                else:
+                    print(f"⏳ {user_uid} remains in queue (no likes sent)")
+                
                 await asyncio.sleep(1)
             
-            print(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+            # Remove completed users
+            for uid in users_to_remove:
+                if uid in auto_like_users:
+                    auto_like_users.remove(uid)
+                    save_users()
+            
+            print(f"Auto-like cycle complete. Removed {len(users_to_remove)} users from queue.")
+            
         except Exception as e:
             print(f"Auto-like error: {e}")
             await asyncio.sleep(60)
@@ -486,7 +524,14 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# ORIGINAL UI – UNCHANGED
+# CHANGE TIMING FUNCTION
+def set_auto_time(hour, minute):
+    global RESET_HOUR, RESET_MINUTE
+    RESET_HOUR = hour
+    RESET_MINUTE = minute
+    print(f"Auto-like time changed to {hour:02d}:{minute:02d} IST")
+    return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
+
 WEBSITE_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -592,10 +637,12 @@ WEBSITE_HTML = '''
             <small>Auto-Like</small>
         </div>
         <div class="nav-item active" onclick="showSection('dashboard')"><i class="fas fa-home"></i> <span>Dashboard</span></div>
+        <div class="nav-item" onclick="showSection('likes20')"><i class="fas fa-arrow-right"></i> <span>20 Likes</span></div>
         <div class="nav-item" onclick="showSection('unlimited')"><i class="fas fa-infinity"></i> <span>Unlimited</span></div>
         <div class="nav-item" onclick="showSection('auto')"><i class="fas fa-clock"></i> <span>Auto Like</span></div>
         <div class="nav-item" onclick="showSection('accounts')"><i class="fas fa-users"></i> <span>Accounts</span></div>
         <div class="nav-item" onclick="showSection('history')"><i class="fas fa-history"></i> <span>History</span></div>
+        <div class="nav-item" onclick="showSection('settings')"><i class="fas fa-cog"></i> <span>Settings</span></div>
     </div>
     
     <div class="main">
@@ -604,7 +651,7 @@ WEBSITE_HTML = '''
                 <div class="header-top">
                     <div>
                         <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
-                        <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:02 AM IST</div>
+                        <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at <span id="auto-time-display">4:02</span> AM IST</div>
                     </div>
                     <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
                         <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
@@ -631,6 +678,17 @@ WEBSITE_HTML = '''
                 </div>
             </div>
             
+            <div id="section-likes20" class="section">
+                <div class="panel glass">
+                    <h2><i class="fas fa-arrow-right"></i> 20 Likes</h2>
+                    <div class="input-group">
+                        <input type="number" id="target-uid-20" placeholder="Enter Free Fire UID" />
+                        <button class="btn btn-primary" onclick="send20Likes()"><i class="fas fa-arrow-right"></i> Send 20 Likes</button>
+                    </div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Sends exactly 20 verified likes and auto-removes from queue.</div>
+                </div>
+            </div>
+            
             <div id="section-unlimited" class="section">
                 <div class="panel glass">
                     <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
@@ -645,7 +703,7 @@ WEBSITE_HTML = '''
             <div id="section-auto" class="section">
                 <div class="panel glass">
                     <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like at 4:02 AM IST with custom limit.</p>
+                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like with custom limit. UIDs auto-remove after successful like.</p>
                     <div class="input-group">
                         <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
                         <input type="number" id="auto-limit" placeholder="Limit (default 492)" value="492" style="width:120px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
@@ -653,7 +711,7 @@ WEBSITE_HTML = '''
                         <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear</button>
                     </div>
                     <div class="user-list" id="auto-user-list"></div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Users in queue will receive auto-likes daily at 4:02 AM IST with custom limit.</div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Users auto-remove from queue after successful like order completes.</div>
                 </div>
             </div>
             
@@ -673,6 +731,21 @@ WEBSITE_HTML = '''
                     <div id="history-list"></div>
                 </div>
             </div>
+            
+            <div id="section-settings" class="section">
+                <div class="panel glass">
+                    <h2><i class="fas fa-cog"></i> Settings</h2>
+                    <div style="margin-bottom:15px;">
+                        <label style="color:#8899bb;">Auto-Like Time (IST)</label>
+                        <div class="input-group" style="margin-top:8px;">
+                            <input type="number" id="set-hour" placeholder="Hour (0-23)" value="4" style="width:80px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
+                            <input type="number" id="set-minute" placeholder="Minute (0-59)" value="2" style="width:80px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
+                            <button class="btn btn-primary" onclick="setAutoTime()"><i class="fas fa-save"></i> Save Time</button>
+                        </div>
+                    </div>
+                    <div id="time-status" style="color:#00ff66;"></div>
+                </div>
+            </div>
         </div>
     </div>
     
@@ -683,6 +756,7 @@ WEBSITE_HTML = '''
                 <div class="row"><span class="label">Player Name</span><span class="value" id="res-name">-</span></div>
                 <div class="row"><span class="label">Likes Sent</span><span class="value" id="res-sent">0</span></div>
                 <div class="row"><span class="label">Total Likes</span><span class="value" id="res-after">0</span></div>
+                <div class="row"><span class="label">Verified Added</span><span class="value" id="res-added">0</span></div>
             </div>
             <button class="close-btn" onclick="closeResult()"><i class="fas fa-times"></i> Close</button>
         </div>
@@ -717,6 +791,7 @@ WEBSITE_HTML = '''
                     document.getElementById('lastAutoRun').textContent = data.last_auto_run ? formatTime(data.last_auto_run) : 'Never';
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
+                    document.getElementById('auto-time-display').textContent = data.auto_time || '4:02';
                     
                     let userHtml = '';
                     if (data.users && data.users.length > 0) {
@@ -766,10 +841,39 @@ WEBSITE_HTML = '''
             document.getElementById('res-name').textContent = data.username || 'Unknown';
             document.getElementById('res-sent').textContent = data.likes_sent || 0;
             document.getElementById('res-after').textContent = data.total_likes || 0;
+            document.getElementById('res-added').textContent = data.verified_added || 0;
             document.getElementById('resultModal').classList.add('active');
         }
         
         function closeResult() { document.getElementById('resultModal').classList.remove('active'); }
+        
+        function send20Likes() {
+            const uid = document.getElementById('target-uid-20').value.trim();
+            if (!uid) { alert('Enter a UID'); return; }
+            if (!confirm(`Send 20 likes to ${uid}?`)) return;
+            
+            const btn = document.querySelector('#section-likes20 .btn-primary');
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
+            btn.disabled = true;
+            
+            fetch('/send-20-likes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB' })
+            })
+            .then(res => res.json())
+            .then(data => {
+                btn.innerHTML = '<i class="fas fa-arrow-right"></i> Send 20 Likes';
+                btn.disabled = false;
+                if (data.success) {
+                    showResult(data);
+                    loadData();
+                    if (document.getElementById('section-history').classList.contains('active')) loadHistory();
+                } else {
+                    alert('Error: ' + (data.error || 'Unknown error'));
+                }
+            });
+        }
         
         function sendUnlimited() {
             const uid = document.getElementById('target-uid-unlimited').value.trim();
@@ -828,6 +932,26 @@ WEBSITE_HTML = '''
                 .then(data => { if (data.success) loadData(); else alert(data.message); });
         }
         
+        function setAutoTime() {
+            const hour = parseInt(document.getElementById('set-hour').value);
+            const minute = parseInt(document.getElementById('set-minute').value);
+            if (isNaN(hour) || isNaN(minute) || hour < 0 || hour > 23 || minute < 0 || minute > 59) {
+                alert('Enter valid time (Hour: 0-23, Minute: 0-59)');
+                return;
+            }
+            fetch('/set-auto-time', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ hour, minute })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('time-status').textContent = data.message;
+                document.getElementById('auto-time-display').textContent = `${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}`;
+                loadData();
+            });
+        }
+        
         document.getElementById('resultModal').addEventListener('click', function(e) { if (e.target === this) closeResult(); });
         
         loadData();
@@ -882,12 +1006,56 @@ def dashboard_data():
         'accounts': account_list,
         'last_auto_run': None,
         'auto_run_status': 'Idle',
-        'auto_run_message': ''
+        'auto_run_message': '',
+        'auto_time': f"{RESET_HOUR:02d}:{RESET_MINUTE:02d}"
     })
 
 @app.route('/api/history')
 def get_history():
     return jsonify({'history': like_history[-50:]})
+
+@app.route('/send-20-likes', methods=['POST'])
+def send_20_likes():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    server_name = data.get('server_name', 'IND').upper()
+    key = data.get('key', 'JMLB')
+    if key != "JMLB":
+        return jsonify({'success': False, 'error': 'Invalid key'})
+    if not uid:
+        return jsonify({'success': False, 'error': 'UID required'})
+
+    user_info_before = asyncio.run(get_user_info(uid, server_name))
+    before_likes = user_info_before.get('likes', 0) if user_info_before else 0
+    before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
+
+    like_url = "https://client.ind.freefiremobile.com/LikeProfile"
+    result = asyncio.run(send_likes_rocket(uid, server_name, like_url, 20))
+    likes_sent = result['success']
+
+    user_info_after = asyncio.run(get_user_info(uid, server_name))
+    if user_info_after:
+        username = user_info_after.get('name', 'Unknown')
+        current_likes = user_info_after.get('likes', 0)
+        update_user_stats(uid, likes_sent, username, current_likes)
+        add_to_history(uid, likes_sent, before_likes, current_likes, username)
+        after_likes = current_likes
+    else:
+        after_likes = before_likes
+        username = before_name
+
+    # Auto-remove from queue if present
+    if likes_sent > 0 and uid in auto_like_users:
+        auto_like_users.remove(uid)
+        save_users()
+
+    return jsonify({
+        'success': likes_sent > 0,
+        'likes_sent': likes_sent,
+        'username': username,
+        'total_likes': after_likes,
+        'verified_added': after_likes - before_likes
+    })
 
 @app.route('/send-unlimited', methods=['POST'])
 def send_unlimited():
@@ -900,9 +1068,9 @@ def send_unlimited():
     if not uid:
         return jsonify({'success': False, 'error': 'UID required'})
 
-    user_info = asyncio.run(get_user_info(uid, server_name))
-    before_likes = user_info.get('likes', 0) if user_info else 0
-    before_name = user_info.get('name', 'Unknown') if user_info else 'Unknown'
+    user_info_before = asyncio.run(get_user_info(uid, server_name))
+    before_likes = user_info_before.get('likes', 0) if user_info_before else 0
+    before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
 
     like_url = "https://client.ind.freefiremobile.com/LikeProfile"
     result = asyncio.run(send_likes_rocket(uid, server_name, like_url, 999999))
@@ -965,6 +1133,16 @@ def delete_all_users():
     user_stats.clear()
     save_users()
     return jsonify({'success': True, 'message': 'All users deleted'})
+
+@app.route('/set-auto-time', methods=['POST'])
+def set_auto_time():
+    data = request.get_json()
+    hour = data.get('hour', 4)
+    minute = data.get('minute', 2)
+    global RESET_HOUR, RESET_MINUTE
+    RESET_HOUR = hour
+    RESET_MINUTE = minute
+    return jsonify({'success': True, 'message': f'Auto-like time set to {hour:02d}:{minute:02d} IST'})
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
@@ -1085,7 +1263,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – Unlimited Likes + Auto Like with Custom Limit")
+print("✅ Auto-Like System Started – 20 Likes + Unlimited + Auto Like with Auto Remove")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
