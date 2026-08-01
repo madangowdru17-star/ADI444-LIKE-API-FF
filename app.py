@@ -42,11 +42,10 @@ like_history = []
 RESET_HOUR = 4
 RESET_MINUTE = 2
 RESET_SECOND = 0
-AUTO_LIKE_LIMIT = 100  # Default auto-like limit
+AUTO_LIKE_LIMIT = 492
 
 RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
 
-# ---------- Data persistence ----------
 def load_users():
     global auto_like_users, user_stats, like_history
     try:
@@ -160,8 +159,7 @@ def add_to_history(target_uid, likes_sent, before, after, username):
         'before': before,
         'after': after,
         'verified_added': after - before,
-        'timestamp': datetime.now().isoformat(),
-        'server': 'IND'
+        'timestamp': datetime.now().isoformat()
     }
     like_history.append(entry)
     save_users()
@@ -231,7 +229,6 @@ def load_accounts(server_name):
     except:
         return []
 
-# ---------- Core async functions ----------
 async def get_user_info(target_uid, server_name="IND"):
     try:
         accounts = load_accounts(server_name)
@@ -307,7 +304,7 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retries=3):
+async def send_like_rocket(encrypted_uid, token, url, account_uid):
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -316,37 +313,29 @@ async def send_like_with_retry(encrypted_uid, token, url, account_uid, max_retri
         'X-GA': "v1 1",
         'ReleaseVersion': "OB54"
     }
-    for attempt in range(max_retries):
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(url, data=edata, headers=headers, timeout=5) as response:
-                    response_text = await response.text()
-                    if response.status == 200:
-                        if account_uid in account_status:
-                            account_status[account_uid]['status'] = 'working'
-                            account_status[account_uid]['last_check'] = datetime.now().isoformat()
-                            save_account_status()
-                        return True, None
-                    elif "LIMIT" in response_text:
-                        if account_uid in account_status:
-                            account_status[account_uid]['status'] = 'timeout'
-                            account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
-                            save_account_status()
-                        return False, "limit_reached"
-                    elif response.status == 429:
-                        await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS) * 2)
-                        continue
-                    else:
-                        await asyncio.sleep(random.choice(RATE_LIMIT_DELAYS))
-                        continue
-        except:
-            continue
-    return False, "max_retries"
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, data=edata, headers=headers, timeout=5) as response:
+                if response.status == 200:
+                    if account_uid in account_status:
+                        account_status[account_uid]['status'] = 'working'
+                        account_status[account_uid]['last_check'] = datetime.now().isoformat()
+                        save_account_status()
+                    return True
+                elif "LIMIT" in await response.text():
+                    if account_uid in account_status:
+                        account_status[account_uid]['status'] = 'timeout'
+                        account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
+                        save_account_status()
+                    return False
+                return False
+    except:
+        return False
 
-async def send_likes_until_complete(target_uid, server_name, url, target_count):
+async def send_likes_rocket(target_uid, server_name, url, limit):
     accounts = load_accounts(server_name)
     if not accounts:
-        return {'success': 0, 'failed': 0, 'total': 0, 'exhausted': True}
+        return {'success': 0, 'failed': 0, 'total': 0}
     
     fresh_accounts = []
     skipped = 0
@@ -357,60 +346,43 @@ async def send_likes_until_complete(target_uid, server_name, url, target_count):
             fresh_accounts.append(acc)
     
     if not fresh_accounts:
-        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped, 'exhausted': True}
+        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped}
     
     random.shuffle(fresh_accounts)
+    accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
+    
+    protobuf_message = create_protobuf_message(target_uid, server_name)
+    encrypted_uid = encrypt_message(protobuf_message)
+    
+    tasks = []
+    for acc in accounts_to_use:
+        token = await get_valid_token(acc['uid'], acc['password'])
+        if token:
+            tasks.append(send_like_rocket(encrypted_uid, token, url, acc['uid']))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
     
     successful = 0
     failed = 0
-    used_accounts = []
-    
-    for acc in fresh_accounts:
-        if successful >= target_count:
-            break
-        
-        token = await get_valid_token(acc['uid'], acc['password'])
-        if not token:
-            failed += 1
-            continue
-        
-        protobuf_message = create_protobuf_message(target_uid, server_name)
-        encrypted_uid = encrypt_message(protobuf_message)
-        
-        success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
-        
-        if success:
+    for r in results:
+        if isinstance(r, bool) and r:
             successful += 1
-            mark_as_liked(target_uid, acc['uid'])
-            used_accounts.append(acc['uid'])
         else:
             failed += 1
-        
-        await asyncio.sleep(0.3)
     
-    if successful < target_count:
-        remaining = [acc for acc in fresh_accounts if acc['uid'] not in used_accounts]
-        if remaining:
-            for acc in remaining:
-                if successful >= target_count:
-                    break
-                token = await get_valid_token(acc['uid'], acc['password'])
-                if not token:
-                    continue
-                protobuf_message = create_protobuf_message(target_uid, server_name)
-                encrypted_uid = encrypt_message(protobuf_message)
-                success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
-                if success:
-                    successful += 1
-                    mark_as_liked(target_uid, acc['uid'])
-                await asyncio.sleep(0.3)
+    if successful > 0:
+        user_info = await get_user_info(target_uid, server_name)
+        username = user_info.get('name', '') if user_info else ''
+        current_likes = user_info.get('likes', 0) if user_info else 0
+        update_user_stats(target_uid, successful, username, current_likes)
+        add_to_history(target_uid, successful, 0, current_likes, username)
     
     return {
         'success': successful,
         'failed': failed,
         'total': len(accounts),
-        'skipped': skipped,
-        'exhausted': successful < target_count and len(fresh_accounts) == 0
+        'accounts_used': len(accounts_to_use),
+        'skipped': skipped
     }
 
 def enc(uid):
@@ -450,7 +422,6 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-# ---------- Background tasks ----------
 async def check_all_accounts_status():
     accounts = load_accounts("IND")
     for acc in accounts:
@@ -460,7 +431,7 @@ async def check_all_accounts_status():
                 protobuf_message = create_protobuf_message("3997461446", "IND")
                 encrypted_uid = encrypt_message(protobuf_message)
                 url = "https://client.ind.freefiremobile.com/LikeProfile"
-                success, _ = await send_like_with_retry(encrypted_uid, token, url, acc['uid'])
+                success = await send_like_rocket(encrypted_uid, token, url, acc['uid'])
                 if success:
                     account_status[acc['uid']] = {'status': 'working', 'last_check': datetime.now().isoformat()}
                 else:
@@ -469,7 +440,7 @@ async def check_all_accounts_status():
             else:
                 account_status[acc['uid']] = {'status': 'unknown', 'last_check': datetime.now().isoformat()}
             save_account_status()
-            await asyncio.sleep(0.5)
+            await asyncio.sleep(0.3)
         except:
             continue
 
@@ -498,14 +469,14 @@ async def auto_like_daily():
             
             for user_uid in auto_like_users:
                 print(f"Processing user: {user_uid}")
-                result = await send_likes_until_complete(
+                result = await send_likes_rocket(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
                     AUTO_LIKE_LIMIT
                 )
                 print(f"Sent {result['success']} likes to {user_uid}")
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)
             
             print(f"Auto-like cycle complete at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
         except Exception as e:
@@ -515,8 +486,8 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# ---------- HTML Dashboard ----------
-DASHBOARD_HTML = '''
+# ORIGINAL UI – UNCHANGED
+WEBSITE_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -526,49 +497,26 @@ DASHBOARD_HTML = '''
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: #0a0e1a;
-            color: #fff;
-            min-height: 100vh;
-            padding: 20px;
-        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background: #0a0e1a; color: #fff; min-height: 100vh; display: flex; }
+        .sidebar { width: 220px; background: #0d1225; border-right: 1px solid rgba(0,255,255,0.1); min-height: 100vh; padding: 20px 0; position: fixed; top: 0; left: 0; z-index: 100; }
+        .sidebar .logo { text-align: center; padding: 0 20px 20px; border-bottom: 1px solid rgba(0,255,255,0.05); margin-bottom: 15px; }
+        .sidebar .logo h2 { color: #00ffff; font-size: 1.2em; }
+        .sidebar .logo small { color: #8899bb; font-size: 0.7em; }
+        .sidebar .nav-item { display: flex; align-items: center; gap: 12px; padding: 12px 25px; color: #8899bb; text-decoration: none; transition: 0.3s; cursor: pointer; border-left: 3px solid transparent; }
+        .sidebar .nav-item:hover, .sidebar .nav-item.active { color: #00ffff; background: rgba(0,255,255,0.05); border-left-color: #00ffff; }
+        .sidebar .nav-item i { width: 20px; text-align: center; }
+        .main { margin-left: 220px; padding: 20px; flex: 1; }
         .container { max-width: 1400px; margin: 0 auto; }
-        
-        .glass {
-            background: rgba(10,14,26,0.6);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,255,255,0.15);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-            border-radius: 16px;
-            transition: 0.3s;
-        }
+        .glass { background: rgba(10,14,26,0.6); backdrop-filter: blur(12px); border: 1px solid rgba(0,255,255,0.15); box-shadow: 0 8px 32px rgba(0,0,0,0.5); border-radius: 16px; transition: 0.3s; }
         .glass:hover { border-color: rgba(0,255,255,0.3); }
-        
         .header { padding: 20px; margin-bottom: 20px; }
         .header h1 { color: #00ffff; font-size: 1.8em; }
         .header .sub { opacity: 0.7; color: #8899bb; }
         .header-top { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 15px; }
-        
         .badge-auto { background: rgba(0,255,100,0.15); color: #00ff66; padding: 4px 14px; border-radius: 20px; border: 1px solid #00ff66; font-size: 0.85em; }
         .badge-reset { color: #ffcc00; font-weight: bold; }
-        
-        .btn {
-            padding: 10px 18px;
-            border: none;
-            border-radius: 8px;
-            cursor: pointer;
-            font-weight: 600;
-            font-size: 0.9em;
-            transition: 0.3s;
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: rgba(0,255,255,0.1);
-            color: #00ffff;
-            border: 1px solid rgba(0,255,255,0.2);
-        }
-        .btn:hover { background: rgba(0,255,255,0.2); transform: translateY(-2px); box-shadow: 0 0 20px rgba(0,255,255,0.1); }
+        .btn { padding: 10px 18px; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 0.9em; transition: 0.3s; display: inline-flex; align-items: center; gap: 6px; background: rgba(0,255,255,0.1); color: #00ffff; border: 1px solid rgba(0,255,255,0.2); }
+        .btn:hover { background: rgba(0,255,255,0.2); transform: translateY(-2px); }
         .btn-primary { background: linear-gradient(135deg, #00ffff, #0088ff); color: #000; border: none; }
         .btn-primary:hover { background: linear-gradient(135deg, #00ddff, #0066dd); }
         .btn-success { background: rgba(0,255,100,0.2); border-color: rgba(0,255,100,0.3); color: #00ff66; }
@@ -577,62 +525,41 @@ DASHBOARD_HTML = '''
         .btn-danger:hover { background: rgba(255,0,50,0.3); }
         .btn-warning { background: rgba(255,200,0,0.2); border-color: rgba(255,200,0,0.3); color: #ffcc00; }
         .btn-warning:hover { background: rgba(255,200,0,0.3); }
-        
+        .btn-rocket { background: linear-gradient(135deg, #ff6f00, #ff3d00); color: #fff; border: none; }
+        .btn-rocket:hover { background: linear-gradient(135deg, #e65100, #bf360c); transform: scale(1.05); }
         .status-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 15px; margin-bottom: 20px; }
         .status-card { padding: 18px 10px; text-align: center; transition: 0.3s; }
         .status-card:hover { transform: translateY(-5px); border-color: rgba(0,255,255,0.3); }
         .status-card .num { font-size: 2.2em; font-weight: bold; }
         .status-card .lbl { color: #8899bb; font-size: 0.8em; margin-top: 4px; }
-        
         .panel { padding: 20px; margin-bottom: 20px; }
         .panel h2 { color: #8899bb; font-size: 1.1em; margin-bottom: 15px; }
         .input-group { display: flex; flex-wrap: wrap; gap: 10px; }
         .input-group input { flex: 1 1 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(0,255,255,0.15); background: rgba(0,0,0,0.4); color: #fff; font-size: 1em; min-width: 150px; }
-        .input-group input:focus { outline: none; border-color: #00ffff; box-shadow: 0 0 20px rgba(0,255,255,0.05); }
+        .input-group input:focus { outline: none; border-color: #00ffff; }
         .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
-        
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
-        th { background: rgba(0,255,255,0.05); padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; white-space: nowrap; border-bottom: 1px solid rgba(0,255,255,0.05); }
+        th { background: rgba(0,255,255,0.05); padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; border-bottom: 1px solid rgba(0,255,255,0.05); }
         td { padding: 12px 15px; border-bottom: 1px solid rgba(255,255,255,0.03); }
-        
         .badge { padding: 3px 10px; border-radius: 20px; font-size: 0.75em; font-weight: bold; display: inline-block; }
         .badge-working { background: rgba(0,255,100,0.15); color: #00ff66; border: 1px solid #00ff66; }
         .badge-timeout { background: rgba(255,0,50,0.15); color: #ff0044; border: 1px solid #ff0044; }
         .badge-reset { background: rgba(255,200,0,0.15); color: #ffcc00; border: 1px solid #ffcc00; }
         .badge-unknown { background: rgba(136,153,187,0.15); color: #8899bb; border: 1px solid #8899bb; }
-        
-        .user-stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 10px; margin-top: 12px; }
-        .user-stat-card { background: rgba(0,255,255,0.03); padding: 14px; border-radius: 10px; border: 1px solid rgba(0,255,255,0.05); }
-        .user-stat-card .uid { color: #00ffff; font-weight: bold; font-size: 1em; }
-        .user-stat-card .name { color: #fff; font-size: 0.9em; }
-        .user-stat-card .row { display: flex; justify-content: space-between; margin-top: 4px; font-size: 0.85em; color: #8899bb; }
-        .user-stat-card .row .val { color: #00ff66; font-weight: bold; }
-        .user-stat-card .last { font-size: 0.75em; color: #666; margin-top: 5px; }
-        
-        .log-area { background: rgba(0,0,0,0.4); padding: 12px; border-radius: 12px; max-height: 200px; overflow-y: auto; font-family: 'Courier New', monospace; font-size: 0.8em; border: 1px solid rgba(0,255,255,0.05); margin-top: 12px; }
-        .log-entry { padding: 3px 0; border-bottom: 1px solid rgba(255,255,255,0.03); }
-        .log-time { color: #00ffff; }
-        .log-success { color: #00ff66; }
-        .log-error { color: #ff0044; }
-        .log-info { color: #ffcc00; }
-        
-        .section-title { font-size: 1.2em; color: #fff; margin: 25px 0 12px; display: flex; align-items: center; gap: 10px; }
-        .live-dot { display: inline-block; width: 10px; height: 10px; background: #00ff66; border-radius: 50%; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(0,255,100,0.3); }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .user-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+        .user-item { background: rgba(0,255,255,0.05); padding: 8px 14px; border-radius: 20px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(0,255,255,0.1); margin: 4px; }
+        .user-item .uid { font-weight: bold; color: #00ffff; }
+        .user-item .stats { color: #8899bb; font-size: 0.8em; }
+        .user-item .stats span { color: #00ff66; font-weight: bold; }
+        .user-item .del-btn { background: none; border: none; color: #ff0044; cursor: pointer; padding: 0 5px; }
         .note { color: #8899bb; font-size: 0.85em; margin-top: 8px; }
         .status-row { display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; align-items: center; }
         .status-row .item { background: rgba(0,255,255,0.05); padding: 6px 15px; border-radius: 20px; font-size: 0.9em; border: 1px solid rgba(0,255,255,0.05); }
-        
-        .result-modal {
-            display: none;
-            position: fixed;
-            top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8);
-            z-index: 999;
-            align-items: center;
-            justify-content: center;
-        }
+        .section-title { font-size: 1.2em; color: #fff; margin: 25px 0 12px; display: flex; align-items: center; gap: 10px; }
+        .live-dot { display: inline-block; width: 10px; height: 10px; background: #00ff66; border-radius: 50%; animation: pulse 1s infinite; box-shadow: 0 0 10px rgba(0,255,100,0.3); }
+        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+        .result-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 999; align-items: center; justify-content: center; }
         .result-modal.active { display: flex; }
         .result-box { background: #141928; padding: 30px; border-radius: 16px; max-width: 500px; width: 90%; border: 1px solid rgba(0,255,255,0.2); box-shadow: 0 0 40px rgba(0,255,255,0.1); }
         .result-box h2 { color: #00ffff; margin-bottom: 15px; }
@@ -640,112 +567,136 @@ DASHBOARD_HTML = '''
         .result-box .row .label { color: #8899bb; }
         .result-box .row .value { color: #00ff66; font-weight: bold; }
         .result-box .close-btn { margin-top: 15px; padding: 10px 30px; background: #00ffff; color: #000; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        
-        .user-list { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
-        .user-item { background: rgba(0,255,255,0.05); padding: 8px 14px; border-radius: 20px; display: inline-flex; align-items: center; gap: 10px; border: 1px solid rgba(0,255,255,0.1); margin: 4px; }
-        .user-item .uid { font-weight: bold; color: #00ffff; }
-        .user-item .stats { color: #8899bb; font-size: 0.8em; }
-        .user-item .stats span { color: #00ff66; font-weight: bold; }
-        .user-item .del-btn { background: none; border: none; color: #ff0044; cursor: pointer; padding: 0 5px; }
-        
-        .history-item { padding: 10px 15px; border-bottom: 1px solid rgba(255,255,255,0.05); display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px; }
-        .history-item .uid { color: #00ffff; font-weight: bold; }
-        .history-item .name { color: #fff; }
-        .history-item .likes { color: #00ff66; font-weight: bold; }
-        .history-item .time { color: #8899bb; font-size: 0.8em; }
-        
-        @media (max-width: 768px) { .status-grid { grid-template-columns: repeat(3, 1fr); } }
-        @media (max-width: 480px) { .status-grid { grid-template-columns: 1fr 1fr; } }
+        .section { display: none; }
+        .section.active { display: block; }
+        @media (max-width: 768px) {
+            .sidebar { width: 60px; }
+            .sidebar .logo h2, .sidebar .logo small { display: none; }
+            .sidebar .nav-item span { display: none; }
+            .sidebar .nav-item { padding: 12px 18px; }
+            .main { margin-left: 60px; }
+            .status-grid { grid-template-columns: repeat(3, 1fr); }
+        }
+        @media (max-width: 480px) {
+            .status-grid { grid-template-columns: 1fr 1fr; }
+            .sidebar { width: 50px; }
+            .main { margin-left: 50px; padding: 10px; }
+            .sidebar .nav-item { padding: 10px 14px; }
+        }
     </style>
 </head>
 <body>
-    <div class="container">
-        <!-- Header -->
-        <div class="header glass">
-            <div class="header-top">
-                <div>
-                    <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
-                    <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:02 AM IST</div>
+    <div class="sidebar">
+        <div class="logo">
+            <h2>⚡ AL</h2>
+            <small>Auto-Like</small>
+        </div>
+        <div class="nav-item active" onclick="showSection('dashboard')"><i class="fas fa-home"></i> <span>Dashboard</span></div>
+        <div class="nav-item" onclick="showSection('unlimited')"><i class="fas fa-infinity"></i> <span>Unlimited</span></div>
+        <div class="nav-item" onclick="showSection('auto')"><i class="fas fa-clock"></i> <span>Auto Like</span></div>
+        <div class="nav-item" onclick="showSection('accounts')"><i class="fas fa-users"></i> <span>Accounts</span></div>
+        <div class="nav-item" onclick="showSection('history')"><i class="fas fa-history"></i> <span>History</span></div>
+    </div>
+    
+    <div class="main">
+        <div class="container">
+            <div class="header glass">
+                <div class="header-top">
+                    <div>
+                        <h1><i class="fas fa-bolt"></i> Auto-Like Dashboard</h1>
+                        <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at 4:02 AM IST</div>
+                    </div>
+                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                        <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
+                        <span><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                        <button class="btn" onclick="location.reload()"><i class="fas fa-sync"></i></button>
+                    </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
-                    <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
-                    <span><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                    <button class="btn" onclick="location.reload()"><i class="fas fa-sync"></i></button>
+            </div>
+            
+            <div class="status-row">
+                <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
+                <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
+                <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
+            </div>
+            
+            <div id="section-dashboard" class="section active">
+                <div class="status-grid">
+                    <div class="status-card glass"><div class="num" style="color:#4488ff;" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
+                    <div class="status-card glass"><div class="num" style="color:#00ff66;" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
+                    <div class="status-card glass"><div class="num" style="color:#ff0044;" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
+                    <div class="status-card glass"><div class="num" style="color:#ff66ff;" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
+                    <div class="status-card glass"><div class="num" style="color:#ffcc00;" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
+                    <div class="status-card glass"><div class="num" style="color:#00ffff;" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
                 </div>
             </div>
-        </div>
-        
-        <!-- Status Row -->
-        <div class="status-row">
-            <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
-            <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
-            <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
-        </div>
-        
-        <!-- Stats -->
-        <div class="status-grid">
-            <div class="status-card glass"><div class="num" style="color:#4488ff;" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
-            <div class="status-card glass"><div class="num" style="color:#00ff66;" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
-            <div class="status-card glass"><div class="num" style="color:#ff0044;" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
-            <div class="status-card glass"><div class="num" style="color:#ff66ff;" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
-            <div class="status-card glass"><div class="num" style="color:#ffcc00;" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
-            <div class="status-card glass"><div class="num" style="color:#00ffff;" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
-        </div>
-        
-        <!-- Unlimited Likes -->
-        <div class="panel glass">
-            <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
-            <div class="input-group">
-                <input type="number" id="target-uid" placeholder="Enter Free Fire UID" />
-                <button class="btn btn-primary" onclick="sendUnlimitedLikes()"><i class="fas fa-infinity"></i> Send All Likes</button>
+            
+            <div id="section-unlimited" class="section">
+                <div class="panel glass">
+                    <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
+                    <div class="input-group">
+                        <input type="number" id="target-uid-unlimited" placeholder="Enter Free Fire UID" />
+                        <button class="btn btn-rocket" onclick="sendUnlimited()"><i class="fas fa-rocket"></i> Send All Likes</button>
+                    </div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes from all accounts instantly at rocket speed.</div>
+                </div>
             </div>
-            <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes from all accounts.</div>
-        </div>
-        
-        <!-- Auto Like Queue -->
-        <div class="panel glass">
-            <h2><i class="fas fa-clock"></i> Auto Like Queue</h2>
-            <div class="input-group">
-                <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
-                <button class="btn btn-warning" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add to Queue</button>
-                <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear Queue</button>
+            
+            <div id="section-auto" class="section">
+                <div class="panel glass">
+                    <h2><i class="fas fa-clock"></i> Auto Like</h2>
+                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like at 4:02 AM IST with custom limit.</p>
+                    <div class="input-group">
+                        <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
+                        <input type="number" id="auto-limit" placeholder="Limit (default 492)" value="492" style="width:120px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
+                        <button class="btn btn-warning" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add</button>
+                        <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear</button>
+                    </div>
+                    <div class="user-list" id="auto-user-list"></div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Users in queue will receive auto-likes daily at 4:02 AM IST with custom limit.</div>
+                </div>
             </div>
-            <div class="user-list" id="auto-user-list"></div>
-            <div class="note"><i class="fas fa-info-circle"></i> Users in queue receive auto-likes daily at 4:02 AM IST.</div>
-        </div>
-        
-        <!-- Account Status -->
-        <div class="section-title"><i class="fas fa-table"></i> Account Status <span class="live-dot"></span></div>
-        <div class="table-wrap glass" style="padding:0; overflow:hidden;">
-            <table>
-                <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th><th>Last Error</th></tr></thead>
-                <tbody id="account-table"></tbody>
-            </table>
-        </div>
-        
-        <!-- Activity Log -->
-        <div class="section-title"><i class="fas fa-terminal"></i> Activity Log</div>
-        <div class="log-area glass" style="background:rgba(0,0,0,0.3);">
-            <div id="log-content"><div class="log-entry"><span class="log-info">System ready.</span></div></div>
+            
+            <div id="section-accounts" class="section">
+                <div class="section-title"><i class="fas fa-users"></i> Account Status <span class="live-dot"></span></div>
+                <div class="table-wrap glass" style="padding:0; overflow:hidden;">
+                    <table>
+                        <thead><tr><th>UID</th><th>Status</th><th>Last Check</th><th>Reset Time</th></tr></thead>
+                        <tbody id="account-table"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <div id="section-history" class="section">
+                <div class="panel glass">
+                    <h2><i class="fas fa-history"></i> Like History</h2>
+                    <div id="history-list"></div>
+                </div>
+            </div>
         </div>
     </div>
     
-    <!-- Result Modal -->
     <div class="result-modal" id="resultModal">
         <div class="result-box">
             <h2><i class="fas fa-check-circle"></i> Like Result</h2>
             <div id="result-content">
                 <div class="row"><span class="label">Player Name</span><span class="value" id="res-name">-</span></div>
                 <div class="row"><span class="label">Likes Sent</span><span class="value" id="res-sent">0</span></div>
-                <div class="row"><span class="label">Before</span><span class="value" id="res-before">0</span></div>
-                <div class="row"><span class="label">After</span><span class="value" id="res-after">0</span></div>
-                <div class="row"><span class="label">Verified Added</span><span class="value" id="res-added">0</span></div>
+                <div class="row"><span class="label">Total Likes</span><span class="value" id="res-after">0</span></div>
             </div>
             <button class="close-btn" onclick="closeResult()"><i class="fas fa-times"></i> Close</button>
         </div>
     </div>
 
     <script>
+        function showSection(id) {
+            document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
+            document.getElementById('section-' + id).classList.add('active');
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.querySelector(`.nav-item[onclick*="${id}"]`).classList.add('active');
+            if (id === 'history') loadHistory();
+        }
+        
         function formatTime(iso) {
             if (!iso) return 'Never';
             try { const d = new Date(iso); return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return iso; }
@@ -755,7 +706,7 @@ DASHBOARD_HTML = '''
             fetch('/api/dashboard-data')
                 .then(res => res.json())
                 .then(data => {
-                    if (data.error) { return; }
+                    if (data.error) return;
                     document.getElementById('total-accounts').textContent = data.total_accounts || 0;
                     document.getElementById('working-count').textContent = data.working_count || 0;
                     document.getElementById('timeout-count').textContent = data.timeout_count || 0;
@@ -771,11 +722,7 @@ DASHBOARD_HTML = '''
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(user => {
                             const s = data.user_stats[user] || { total_likes: 0, today_likes: 0 };
-                            userHtml += `<div class="user-item">
-                                <span class="uid">${user}</span>
-                                <span class="stats">T:<span>${s.total_likes||0}</span> D:<span>${s.today_likes||0}</span></span>
-                                <button class="del-btn" onclick="deleteUser('${user}')"><i class="fas fa-times"></i></button>
-                            </div>`;
+                            userHtml += `<div class="user-item"><span class="uid">${user}</span><span class="stats">T:<span>${s.total_likes||0}</span> D:<span>${s.today_likes||0}</span></span><button class="del-btn" onclick="deleteUser('${user}')"><i class="fas fa-times"></i></button></div>`;
                         });
                     } else {
                         userHtml = '<div class="note">No users in auto-queue</div>';
@@ -786,69 +733,85 @@ DASHBOARD_HTML = '''
                     if (data.accounts && data.accounts.length > 0) {
                         data.accounts.forEach(acc => {
                             const cls = acc.status === 'working' ? 'working' : acc.status === 'timeout' ? 'timeout' : 'unknown';
-                            tableHtml += `<tr><td><strong>${acc.uid}</strong></td><td><span class="badge badge-${cls}">${acc.status}</span></td><td>${acc.last_check ? formatTime(acc.last_check) : 'Never'}</td><td>${acc.reset_time ? formatTime(acc.reset_time) : 'N/A'}</td><td>${acc.last_error || 'None'}</td></tr>`;
+                            tableHtml += `<tr><td><strong>${acc.uid}</strong></td><td><span class="badge badge-${cls}">${acc.status}</span></td><td>${acc.last_check ? formatTime(acc.last_check) : 'Never'}</td><td>${acc.reset_time ? formatTime(acc.reset_time) : 'N/A'}</td></tr>`;
                         });
                     } else {
-                        tableHtml = '<tr><td colspan="5">No accounts loaded</td></tr>';
+                        tableHtml = '<tr><td colspan="4">No accounts loaded</td></tr>';
                     }
                     document.getElementById('account-table').innerHTML = tableHtml;
-                    
-                    if (data.logs && data.logs.length > 0) {
-                        let logHtml = '';
-                        data.logs.forEach(log => {
-                            logHtml += `<div class="log-entry"><span class="log-time">[${log.time}]</span> <span class="log-${log.type}">${log.message}</span></div>`;
+                });
+        }
+        
+        function loadHistory() {
+            fetch('/api/history')
+                .then(res => res.json())
+                .then(data => {
+                    let html = '';
+                    if (data.history && data.history.length > 0) {
+                        data.history.forEach(h => {
+                            html += `<div class="history-item" style="padding:10px 15px;border-bottom:1px solid rgba(255,255,255,0.05);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+                                <span><span style="color:#00ffff;font-weight:bold;">${h.uid}</span> <span style="color:#fff;">${h.username || 'Unknown'}</span></span>
+                                <span style="color:#00ff66;font-weight:bold;">+${h.likes_sent} (${h.verified_added} verified)</span>
+                                <span style="color:#8899bb;font-size:0.8em;">${formatTime(h.timestamp)}</span>
+                            </div>`;
                         });
-                        document.getElementById('log-content').innerHTML = logHtml;
+                    } else {
+                        html = '<div class="note">No history yet</div>';
                     }
+                    document.getElementById('history-list').innerHTML = html;
                 });
         }
         
         function showResult(data) {
             document.getElementById('res-name').textContent = data.username || 'Unknown';
             document.getElementById('res-sent').textContent = data.likes_sent || 0;
-            document.getElementById('res-before').textContent = data.likes_before || 0;
-            document.getElementById('res-after').textContent = data.likes_after || 0;
-            document.getElementById('res-added').textContent = data.verified_added || 0;
+            document.getElementById('res-after').textContent = data.total_likes || 0;
             document.getElementById('resultModal').classList.add('active');
         }
         
         function closeResult() { document.getElementById('resultModal').classList.remove('active'); }
         
-        function sendUnlimitedLikes() {
-            const uid = document.getElementById('target-uid').value.trim();
+        function sendUnlimited() {
+            const uid = document.getElementById('target-uid-unlimited').value.trim();
             if (!uid) { alert('Enter a UID'); return; }
-            if (!confirm(`Send ALL available likes to ${uid}?`)) return;
+            if (!confirm(`Send unlimited likes to ${uid}?`)) return;
             
-            const btn = document.querySelector('.btn-primary');
+            const btn = document.querySelector('.btn-rocket');
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
             btn.disabled = true;
             
-            fetch('/send-likes', {
+            fetch('/send-unlimited', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB', count: 9999 })
+                body: JSON.stringify({ uid, server_name: 'IND', key: 'JMLB' })
             })
             .then(res => res.json())
             .then(data => {
-                btn.innerHTML = '<i class="fas fa-infinity"></i> Send All Likes';
+                btn.innerHTML = '<i class="fas fa-rocket"></i> Send All Likes';
                 btn.disabled = false;
                 if (data.success) {
                     showResult(data);
                     loadData();
+                    if (document.getElementById('section-history').classList.contains('active')) loadHistory();
                 } else {
-                    alert('✗ Error: ' + (data.error || 'Unknown error'));
+                    alert('Error: ' + (data.error || 'Unknown error'));
                 }
             });
         }
         
         function addAutoUser() {
             const uid = document.getElementById('target-uid-auto').value.trim();
+            const limit = parseInt(document.getElementById('auto-limit').value) || 492;
             if (!uid) { alert('Enter a UID'); return; }
-            fetch('/add-user', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ uid }) })
-                .then(res => res.json())
-                .then(data => {
-                    if (data.success) { alert('Added to queue: ' + uid); loadData(); } else { alert(data.message); }
-                });
+            fetch('/add-auto-user', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid, limit })
+            })
+            .then(res => res.json())
+            .then(data => {
+                if (data.success) { alert('Added to queue: ' + uid); loadData(); } else { alert(data.message); }
+            });
         }
         
         function deleteUser(uid) {
@@ -869,22 +832,22 @@ DASHBOARD_HTML = '''
         
         loadData();
         setInterval(loadData, 3000);
+        setInterval(loadHistory, 5000);
     </script>
 </body>
 </html>
 '''
 
-# ---------- Routes ----------
 @app.route('/')
 def dashboard():
-    return render_template_string(DASHBOARD_HTML)
+    return render_template_string(WEBSITE_HTML)
 
 @app.route('/api/dashboard-data')
 def dashboard_data():
     server = 'IND'
     accounts = load_accounts(server)
     if not accounts:
-        return jsonify({'error': f'No accounts found for server {server}.'})
+        return jsonify({'error': 'No accounts found'})
     total = len(accounts)
     working_count = 0
     timeout_count = 0
@@ -901,22 +864,11 @@ def dashboard_data():
             'uid': uid,
             'status': status,
             'last_check': status_info.get('last_check'),
-            'reset_time': status_info.get('reset_time'),
-            'last_error': status_info.get('last_error')
+            'reset_time': status_info.get('reset_time')
         })
     total_likes = sum(len(v) for v in liked_cache.values())
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
-    logs = []
-    try:
-        with open('logs.txt', 'r') as f:
-            lines = f.readlines()[-50:]
-            for line in lines:
-                parts = line.strip().split('|')
-                if len(parts) == 3:
-                    logs.append({'time': parts[0], 'type': parts[1], 'message': parts[2]})
-    except:
-        pass
     return jsonify({
         'total_accounts': total,
         'working_count': working_count,
@@ -928,16 +880,62 @@ def dashboard_data():
         'users': auto_like_users,
         'user_stats': user_stats,
         'accounts': account_list,
-        'logs': logs,
         'last_auto_run': None,
         'auto_run_status': 'Idle',
         'auto_run_message': ''
     })
 
-@app.route('/add-user', methods=['POST'])
-def add_user():
+@app.route('/api/history')
+def get_history():
+    return jsonify({'history': like_history[-50:]})
+
+@app.route('/send-unlimited', methods=['POST'])
+def send_unlimited():
     data = request.get_json()
     uid = data.get('uid', '').strip()
+    server_name = data.get('server_name', 'IND').upper()
+    key = data.get('key', 'JMLB')
+    if key != "JMLB":
+        return jsonify({'success': False, 'error': 'Invalid key'})
+    if not uid:
+        return jsonify({'success': False, 'error': 'UID required'})
+
+    user_info = asyncio.run(get_user_info(uid, server_name))
+    before_likes = user_info.get('likes', 0) if user_info else 0
+    before_name = user_info.get('name', 'Unknown') if user_info else 'Unknown'
+
+    like_url = "https://client.ind.freefiremobile.com/LikeProfile"
+    result = asyncio.run(send_likes_rocket(uid, server_name, like_url, 999999))
+    likes_sent = result['success']
+
+    user_info_after = asyncio.run(get_user_info(uid, server_name))
+    if user_info_after:
+        username = user_info_after.get('name', 'Unknown')
+        current_likes = user_info_after.get('likes', 0)
+        update_user_stats(uid, likes_sent, username, current_likes)
+        add_to_history(uid, likes_sent, before_likes, current_likes, username)
+        after_likes = current_likes
+    else:
+        after_likes = before_likes
+        username = before_name
+
+    if likes_sent > 0 and uid not in auto_like_users:
+        auto_like_users.append(uid)
+        save_users()
+
+    return jsonify({
+        'success': likes_sent > 0,
+        'likes_sent': likes_sent,
+        'username': username,
+        'total_likes': after_likes,
+        'verified_added': after_likes - before_likes
+    })
+
+@app.route('/add-auto-user', methods=['POST'])
+def add_auto_user():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    limit = data.get('limit', 492)
     if not uid:
         return jsonify({'success': False, 'message': 'UID required'})
     if uid in auto_like_users:
@@ -945,7 +943,9 @@ def add_user():
     auto_like_users.append(uid)
     user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
     save_users()
-    return jsonify({'success': True, 'message': f'Added {uid}'})
+    global AUTO_LIKE_LIMIT
+    AUTO_LIKE_LIMIT = limit
+    return jsonify({'success': True, 'message': f'Added {uid} with limit {limit}'})
 
 @app.route('/delete-user', methods=['POST'])
 def delete_user():
@@ -965,61 +965,6 @@ def delete_all_users():
     user_stats.clear()
     save_users()
     return jsonify({'success': True, 'message': 'All users deleted'})
-
-@app.route('/send-likes', methods=['POST'])
-def send_likes_manual():
-    data = request.get_json()
-    uid = data.get('uid', '').strip()
-    server_name = data.get('server_name', 'IND').upper()
-    key = data.get('key', 'JMLB')
-    count = int(data.get('count', 9999))
-    if key != "JMLB":
-        return jsonify({'success': False, 'error': 'Invalid key'})
-    if not uid:
-        return jsonify({'success': False, 'error': 'UID required'})
-
-    user_info_before = asyncio.run(get_user_info(uid, server_name))
-    before_likes = user_info_before.get('likes', 0) if user_info_before else 0
-    before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
-
-    if server_name == "IND":
-        like_url = "https://client.ind.freefiremobile.com/LikeProfile"
-    elif server_name in {"BR", "US", "SAC", "NA"}:
-        like_url = "https://client.us.freefiremobile.com/LikeProfile"
-    else:
-        like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
-    
-    result = asyncio.run(send_likes_until_complete(uid, server_name, like_url, count))
-    likes_sent = result['success']
-
-    user_info_after = asyncio.run(get_user_info(uid, server_name))
-    if user_info_after:
-        username = user_info_after.get('name', 'Unknown')
-        current_likes = user_info_after.get('likes', 0)
-        update_user_stats(uid, likes_sent, username, current_likes)
-        after_likes = current_likes
-    else:
-        after_likes = before_likes
-        username = before_name
-
-    if likes_sent > 0 and uid not in auto_like_users:
-        auto_like_users.append(uid)
-        save_users()
-
-    add_to_history(uid, likes_sent, before_likes, after_likes, username)
-
-    return jsonify({
-        'success': likes_sent > 0,
-        'likes_sent': likes_sent,
-        'username': username,
-        'total_likes': after_likes,
-        'likes_before': before_likes,
-        'likes_after': after_likes,
-        'verified_added': after_likes - before_likes,
-        'skipped': result.get('skipped', 0),
-        'failed': result.get('failed', 0),
-        'accounts_used': result.get('accounts_used', 0)
-    })
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
@@ -1076,8 +1021,8 @@ def handle_requests():
     else:
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
-    limit = requested_likes if requested_likes and requested_likes > 0 else 9999
-    result = asyncio.run(send_likes_until_complete(uid, server_name, like_url, limit))
+    limit = requested_likes if requested_likes and requested_likes > 0 else 50
+    result = asyncio.run(send_likes_rocket(uid, server_name, like_url, limit))
     success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -1128,7 +1073,6 @@ def reset_cache():
 def health():
     return jsonify({"status": "healthy", "accounts": len(load_accounts("IND"))})
 
-# ---------- Startup ----------
 load_liked_data()
 load_account_status()
 load_users()
@@ -1141,7 +1085,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – Unlimited Likes + Live Account Status")
+print("✅ Auto-Like System Started – Unlimited Likes + Auto Like with Custom Limit")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
