@@ -546,7 +546,7 @@ def set_auto_time(hour, minute):
     return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
 
 # ============================================================
-# PREMIUM UI – HEX CHEATS LIKE BOT
+# PREMIUM CYBERPUNK UI
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -556,51 +556,60 @@ WEBSITE_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HEX CHEATS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@400;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
+        /* ===== RESET & BASE ===== */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
-            font-family: 'Rajdhani', 'Segoe UI', sans-serif;
+            font-family: 'Inter', sans-serif;
             background: #06080f;
             color: #e0e6ff;
             min-height: 100vh;
             display: flex;
-            background-image: radial-gradient(circle at 10% 20%, rgba(0,255,200,0.03) 0%, transparent 50%),
-                              radial-gradient(circle at 90% 80%, rgba(100,0,255,0.03) 0%, transparent 50%);
+            background-image: 
+                radial-gradient(circle at 10% 20%, rgba(0,255,200,0.03) 0%, transparent 50%),
+                radial-gradient(circle at 90% 80%, rgba(100,0,255,0.03) 0%, transparent 50%);
         }
         
-        /* Animations */
-        @keyframes fadeInUp { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 20px rgba(0,255,200,0.1); } 50% { box-shadow: 0 0 40px rgba(0,255,200,0.2); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(-20px); } to { opacity: 1; transform: translateX(0); } }
-        @keyframes borderGlow { 0%,100% { border-color: rgba(0,255,200,0.2); } 50% { border-color: rgba(0,255,200,0.5); } }
+        /* ===== SCROLLBAR ===== */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        ::-webkit-scrollbar-thumb { background: rgba(0,255,200,0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,255,200,0.3); }
+        
+        /* ===== ANIMATIONS ===== */
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 20px rgba(0,255,200,0.05); } 50% { box-shadow: 0 0 40px rgba(0,255,200,0.12); } }
+        @keyframes slideIn { from { opacity: 0; transform: translateX(-15px); } to { opacity: 1; transform: translateX(0); } }
         @keyframes shimmer { 0% { background-position: -200% 0; } 100% { background-position: 200% 0; } }
+        @keyframes glowPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
         
-        .fade-in { animation: fadeInUp 0.5s ease forwards; }
-        .slide-in { animation: slideIn 0.4s ease forwards; }
+        .fade-in { animation: fadeInUp 0.4s ease forwards; }
+        .slide-in { animation: slideIn 0.3s ease forwards; }
         
-        /* Sidebar */
+        /* ===== SIDEBAR ===== */
         .sidebar {
-            width: 240px;
+            width: 220px;
             background: rgba(8,12,25,0.95);
-            border-right: 1px solid rgba(0,255,200,0.08);
+            border-right: 1px solid rgba(0,255,200,0.06);
             min-height: 100vh;
-            padding: 25px 0;
+            padding: 20px 0;
             position: fixed;
             top: 0; left: 0;
             z-index: 100;
             backdrop-filter: blur(20px);
             transition: 0.3s;
+            overflow-y: auto;
         }
         .sidebar .logo {
             text-align: center;
-            padding: 0 20px 25px;
+            padding: 0 20px 20px;
             border-bottom: 1px solid rgba(0,255,200,0.06);
-            margin-bottom: 20px;
+            margin-bottom: 15px;
         }
         .sidebar .logo h2 {
             font-family: 'Orbitron', monospace;
-            font-size: 1.4em;
+            font-size: 1.3em;
             font-weight: 900;
             background: linear-gradient(135deg, #00ffc8, #00ccff);
             -webkit-background-clip: text;
@@ -609,70 +618,85 @@ WEBSITE_HTML = '''
         }
         .sidebar .logo small {
             color: #4a5580;
-            font-size: 0.7em;
-            letter-spacing: 3px;
+            font-size: 0.65em;
+            letter-spacing: 4px;
             text-transform: uppercase;
         }
         .sidebar .nav-item {
             display: flex;
             align-items: center;
-            gap: 14px;
-            padding: 12px 25px;
+            gap: 12px;
+            padding: 10px 22px;
             color: #5a6a8a;
             text-decoration: none;
             transition: 0.3s;
             cursor: pointer;
             border-left: 3px solid transparent;
-            font-weight: 600;
-            font-size: 0.95em;
+            font-weight: 500;
+            font-size: 0.85em;
             letter-spacing: 0.5px;
+            margin: 2px 8px;
+            border-radius: 0 8px 8px 0;
         }
-        .sidebar .nav-item:hover { color: #00ffc8; background: rgba(0,255,200,0.04); }
+        .sidebar .nav-item:hover { 
+            color: #00ffc8; 
+            background: rgba(0,255,200,0.04); 
+        }
         .sidebar .nav-item.active {
             color: #00ffc8;
             background: rgba(0,255,200,0.06);
             border-left-color: #00ffc8;
+            box-shadow: inset 0 0 30px rgba(0,255,200,0.02);
         }
-        .sidebar .nav-item i { width: 22px; text-align: center; font-size: 1.1em; }
+        .sidebar .nav-item i { 
+            width: 20px; 
+            text-align: center; 
+            font-size: 1em;
+        }
+        .sidebar .nav-item span { font-size: 0.9em; }
         
+        /* ===== MAIN CONTENT ===== */
         .main {
-            margin-left: 240px;
-            padding: 25px 30px;
+            margin-left: 220px;
+            padding: 20px 25px;
             flex: 1;
-            width: calc(100% - 240px);
+            width: calc(100% - 220px);
         }
         .container { max-width: 1400px; margin: 0 auto; }
         
-        /* Glass cards */
+        /* ===== GLASS CARDS ===== */
         .glass {
-            background: rgba(12,18,38,0.6);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,255,200,0.06);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.4);
-            border-radius: 16px;
-            transition: 0.3s;
-        }
-        .glass:hover { border-color: rgba(0,255,200,0.15); animation: pulseGlow 2s infinite; }
-        
-        /* Header */
-        .header {
-            padding: 20px 25px;
-            margin-bottom: 25px;
             background: rgba(12,18,38,0.5);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,255,200,0.05);
-            border-radius: 16px;
+            border: 1px solid rgba(0,255,200,0.06);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border-radius: 14px;
+            transition: 0.3s;
+        }
+        .glass:hover { 
+            border-color: rgba(0,255,200,0.12); 
+            animation: pulseGlow 2s infinite;
+        }
+        
+        /* ===== HEADER ===== */
+        .header {
+            padding: 18px 22px;
+            margin-bottom: 20px;
+            background: rgba(12,18,38,0.4);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(0,255,200,0.04);
+            border-radius: 14px;
         }
         .header-top {
             display: flex;
             justify-content: space-between;
             align-items: center;
             flex-wrap: wrap;
-            gap: 15px;
+            gap: 12px;
         }
         .header h1 {
             font-family: 'Orbitron', monospace;
-            font-size: 1.6em;
+            font-size: 1.4em;
             font-weight: 700;
             background: linear-gradient(135deg, #00ffc8, #00ccff);
             -webkit-background-clip: text;
@@ -681,101 +705,117 @@ WEBSITE_HTML = '''
         }
         .header .sub {
             color: #4a5580;
-            font-size: 0.85em;
-            letter-spacing: 1px;
+            font-size: 0.8em;
+            letter-spacing: 0.5px;
         }
         .badge-auto {
-            background: rgba(0,255,200,0.1);
+            background: rgba(0,255,200,0.08);
             color: #00ffc8;
-            padding: 5px 16px;
+            padding: 4px 14px;
             border-radius: 20px;
-            border: 1px solid rgba(0,255,200,0.2);
-            font-size: 0.8em;
+            border: 1px solid rgba(0,255,200,0.15);
+            font-size: 0.75em;
             font-weight: 600;
         }
-        .badge-reset { color: #ffd700; font-weight: 600; }
+        .badge-reset { color: #ffd700; font-weight: 500; }
         
-        /* Buttons */
-        .btn {
-            padding: 10px 20px;
+        /* ===== STATUS ROW ===== */
+        .status-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            margin-bottom: 18px;
+            align-items: center;
+        }
+        .status-row .item {
+            background: rgba(0,255,200,0.03);
+            padding: 5px 14px;
+            border-radius: 20px;
+            font-size: 0.8em;
+            border: 1px solid rgba(0,255,200,0.04);
+            color: #5a6a8a;
+        }
+        .status-row .item i { margin-right: 6px; color: #00ffc8; }
+        
+        /* ===== TOP BUTTONS ===== */
+        .top-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-bottom: 20px;
+        }
+        .top-btn {
+            padding: 9px 18px;
             border: none;
             border-radius: 10px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 0.9em;
+            font-size: 0.8em;
             transition: 0.3s;
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            font-family: 'Rajdhani', sans-serif;
-            letter-spacing: 0.5px;
-        }
-        .btn:hover { transform: translateY(-2px); }
-        .btn-primary {
-            background: linear-gradient(135deg, #00ffc8, #0099ff);
-            color: #06080f;
-            border: none;
-        }
-        .btn-primary:hover { box-shadow: 0 0 30px rgba(0,255,200,0.2); }
-        .btn-success {
-            background: rgba(0,255,100,0.15);
-            color: #00ff66;
-            border: 1px solid rgba(0,255,100,0.2);
-        }
-        .btn-success:hover { background: rgba(0,255,100,0.25); }
-        .btn-danger {
-            background: rgba(255,0,50,0.15);
-            color: #ff0044;
-            border: 1px solid rgba(255,0,50,0.2);
-        }
-        .btn-danger:hover { background: rgba(255,0,50,0.25); }
-        .btn-warning {
-            background: rgba(255,200,0,0.15);
-            color: #ffcc00;
-            border: 1px solid rgba(255,200,0,0.2);
-        }
-        .btn-warning:hover { background: rgba(255,200,0,0.25); }
-        .btn-rocket {
-            background: linear-gradient(135deg, #ff6f00, #ff3d00);
-            color: #fff;
-            border: none;
-        }
-        .btn-rocket:hover { box-shadow: 0 0 30px rgba(255,50,0,0.3); transform: scale(1.02); }
-        .btn-ghost {
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.3px;
             background: rgba(255,255,255,0.04);
             color: #8a9abf;
-            border: 1px solid rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.04);
         }
-        .btn-ghost:hover { background: rgba(255,255,255,0.08); color: #fff; }
+        .top-btn:hover { 
+            background: rgba(0,255,200,0.08); 
+            color: #00ffc8; 
+            transform: translateY(-2px);
+            box-shadow: 0 4px 20px rgba(0,255,200,0.05);
+        }
+        .top-btn.active-btn {
+            background: rgba(0,255,200,0.08);
+            color: #00ffc8;
+            border-color: rgba(0,255,200,0.15);
+        }
+        .top-btn i { font-size: 0.9em; }
         
-        /* Status Grid */
-        .status-grid {
+        /* ===== STATS GRID ===== */
+        .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 15px;
-            margin-bottom: 25px;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 14px;
+            margin-bottom: 20px;
         }
-        .status-card {
-            padding: 18px 12px;
+        .stat-card {
+            padding: 16px 12px;
             text-align: center;
-            background: rgba(12,18,38,0.5);
+            background: rgba(12,18,38,0.4);
             backdrop-filter: blur(8px);
             border: 1px solid rgba(0,255,200,0.04);
-            border-radius: 14px;
+            border-radius: 12px;
             transition: 0.3s;
+            min-height: 90px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
-        .status-card:hover { border-color: rgba(0,255,200,0.15); transform: translateY(-3px); }
-        .status-card .num {
+        .stat-card:hover { 
+            border-color: rgba(0,255,200,0.12); 
+            transform: translateY(-3px);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+        }
+        .stat-card .num {
             font-family: 'Orbitron', monospace;
-            font-size: 2.2em;
+            font-size: 2em;
             font-weight: 700;
+            line-height: 1.2;
         }
-        .status-card .lbl {
+        .stat-card .lbl {
             color: #4a5580;
-            font-size: 0.8em;
+            font-size: 0.7em;
             margin-top: 4px;
             letter-spacing: 1px;
             text-transform: uppercase;
+        }
+        .stat-card .icon { 
+            font-size: 1.2em; 
+            margin-bottom: 4px;
+            opacity: 0.5;
         }
         .num-accounts { color: #4488ff; }
         .num-working { color: #00ff66; }
@@ -784,152 +824,210 @@ WEBSITE_HTML = '''
         .num-targets { color: #ffcc00; }
         .num-queue { color: #00ffc8; }
         
-        /* Panel */
+        /* ===== PANELS ===== */
         .panel {
-            padding: 22px 25px;
-            margin-bottom: 20px;
-            background: rgba(12,18,38,0.5);
+            padding: 18px 20px;
+            margin-bottom: 18px;
+            background: rgba(12,18,38,0.4);
             backdrop-filter: blur(8px);
             border: 1px solid rgba(0,255,200,0.04);
-            border-radius: 16px;
+            border-radius: 14px;
         }
         .panel h2 {
             color: #8a9abf;
-            font-size: 1em;
-            margin-bottom: 15px;
+            font-size: 0.9em;
+            margin-bottom: 12px;
             letter-spacing: 1px;
             text-transform: uppercase;
             font-weight: 600;
         }
+        .panel h2 i { margin-right: 8px; color: #00ffc8; }
+        
         .input-group {
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
+            align-items: center;
         }
         .input-group input, .input-group select {
-            padding: 12px 16px;
+            padding: 10px 14px;
             border-radius: 10px;
-            border: 1px solid rgba(0,255,200,0.08);
+            border: 1px solid rgba(0,255,200,0.06);
             background: rgba(0,0,0,0.3);
             color: #e0e6ff;
-            font-size: 1em;
-            font-family: 'Rajdhani', sans-serif;
-            min-width: 150px;
+            font-size: 0.9em;
+            font-family: 'Inter', sans-serif;
+            min-width: 140px;
             transition: 0.3s;
         }
         .input-group input:focus, .input-group select:focus {
             outline: none;
-            border-color: rgba(0,255,200,0.3);
-            box-shadow: 0 0 20px rgba(0,255,200,0.05);
+            border-color: rgba(0,255,200,0.2);
+            box-shadow: 0 0 20px rgba(0,255,200,0.03);
         }
         .input-group select option { background: #0a0e1a; }
         
+        /* ===== BUTTONS ===== */
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85em;
+            transition: 0.3s;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.3px;
+            min-height: 42px;
+        }
+        .btn:hover { transform: translateY(-2px); }
+        .btn-primary {
+            background: linear-gradient(135deg, #00ffc8, #0099ff);
+            color: #06080f;
+            border: none;
+        }
+        .btn-primary:hover { box-shadow: 0 0 30px rgba(0,255,200,0.15); }
+        .btn-success {
+            background: rgba(0,255,100,0.12);
+            color: #00ff66;
+            border: 1px solid rgba(0,255,100,0.12);
+        }
+        .btn-success:hover { background: rgba(0,255,100,0.2); }
+        .btn-danger {
+            background: rgba(255,0,50,0.12);
+            color: #ff0044;
+            border: 1px solid rgba(255,0,50,0.12);
+        }
+        .btn-danger:hover { background: rgba(255,0,50,0.2); }
+        .btn-warning {
+            background: rgba(255,200,0,0.12);
+            color: #ffcc00;
+            border: 1px solid rgba(255,200,0,0.12);
+        }
+        .btn-warning:hover { background: rgba(255,200,0,0.2); }
+        .btn-rocket {
+            background: linear-gradient(135deg, #ff6f00, #ff3d00);
+            color: #fff;
+            border: none;
+        }
+        .btn-rocket:hover { box-shadow: 0 0 30px rgba(255,50,0,0.2); transform: scale(1.02); }
+        .btn-ghost {
+            background: rgba(255,255,255,0.03);
+            color: #8a9abf;
+            border: 1px solid rgba(255,255,255,0.04);
+        }
+        .btn-ghost:hover { background: rgba(255,255,255,0.06); color: #fff; }
+        
+        /* ===== USER LIST ===== */
         .user-list {
             display: flex;
             flex-wrap: wrap;
-            gap: 8px;
-            margin-top: 12px;
+            gap: 6px;
+            margin-top: 10px;
         }
         .user-item {
-            background: rgba(0,255,200,0.04);
-            padding: 8px 16px;
+            background: rgba(0,255,200,0.03);
+            padding: 6px 14px;
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
-            gap: 12px;
-            border: 1px solid rgba(0,255,200,0.06);
-            margin: 4px;
-            font-size: 0.9em;
+            gap: 10px;
+            border: 1px solid rgba(0,255,200,0.04);
+            margin: 3px;
+            font-size: 0.85em;
             transition: 0.3s;
         }
-        .user-item:hover { border-color: rgba(0,255,200,0.15); }
+        .user-item:hover { border-color: rgba(0,255,200,0.1); }
         .user-item .uid { font-weight: 600; color: #00ffc8; }
-        .user-item .stats { color: #4a5580; font-size: 0.8em; }
+        .user-item .stats { color: #4a5580; font-size: 0.75em; }
         .user-item .stats span { color: #00ff66; font-weight: 600; }
         .user-item .del-btn {
             background: none;
             border: none;
             color: #ff0044;
             cursor: pointer;
-            padding: 0 5px;
-            font-size: 1.1em;
+            padding: 0 4px;
+            font-size: 1em;
         }
         
-        /* Table */
+        /* ===== TABLE ===== */
         .table-wrap { overflow-x: auto; }
         table {
             width: 100%;
             border-collapse: collapse;
-            background: rgba(0,0,0,0.2);
+            background: rgba(0,0,0,0.15);
             border-radius: 12px;
             overflow: hidden;
-            margin-top: 12px;
-            font-size: 0.9em;
+            margin-top: 10px;
+            font-size: 0.85em;
         }
         th {
-            background: rgba(0,255,200,0.04);
-            padding: 12px 16px;
+            background: rgba(0,255,200,0.03);
+            padding: 10px 14px;
             text-align: left;
             font-weight: 600;
             color: #4a5580;
-            border-bottom: 1px solid rgba(0,255,200,0.04);
+            border-bottom: 1px solid rgba(0,255,200,0.03);
             text-transform: uppercase;
-            font-size: 0.75em;
-            letter-spacing: 1px;
-        }
-        td { padding: 12px 16px; border-bottom: 1px solid rgba(255,255,255,0.02); }
-        .badge {
-            padding: 3px 12px;
-            border-radius: 20px;
             font-size: 0.7em;
+            letter-spacing: 0.8px;
+        }
+        td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.02); }
+        .badge {
+            padding: 2px 10px;
+            border-radius: 20px;
+            font-size: 0.65em;
             font-weight: 600;
             display: inline-block;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        .badge-working { background: rgba(0,255,100,0.15); color: #00ff66; border: 1px solid rgba(0,255,100,0.15); }
-        .badge-timeout { background: rgba(255,0,50,0.15); color: #ff0044; border: 1px solid rgba(255,0,50,0.15); }
-        .badge-reset { background: rgba(255,200,0,0.15); color: #ffcc00; border: 1px solid rgba(255,200,0,0.15); }
-        .badge-unknown { background: rgba(136,153,187,0.15); color: #8899bb; border: 1px solid rgba(136,153,187,0.15); }
+        .badge-working { background: rgba(0,255,100,0.12); color: #00ff66; border: 1px solid rgba(0,255,100,0.08); }
+        .badge-timeout { background: rgba(255,0,50,0.12); color: #ff0044; border: 1px solid rgba(255,0,50,0.08); }
+        .badge-reset { background: rgba(255,200,0,0.12); color: #ffcc00; border: 1px solid rgba(255,200,0,0.08); }
+        .badge-unknown { background: rgba(136,153,187,0.12); color: #8899bb; border: 1px solid rgba(136,153,187,0.08); }
         
         .section-title {
-            font-size: 1.1em;
+            font-size: 1em;
             color: #e0e6ff;
-            margin: 25px 0 12px;
+            margin: 20px 0 10px;
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
             font-weight: 600;
-            letter-spacing: 0.5px;
+            letter-spacing: 0.3px;
         }
         .live-dot {
             display: inline-block;
-            width: 8px;
-            height: 8px;
+            width: 7px;
+            height: 7px;
             background: #00ff66;
             border-radius: 50%;
-            animation: pulse 1s infinite;
+            animation: glowPulse 1.5s infinite;
         }
-        @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.2; } }
         
-        .note { color: #4a5580; font-size: 0.85em; margin-top: 10px; }
-        .status-row {
+        .note { color: #4a5580; font-size: 0.8em; margin-top: 8px; }
+        
+        /* ===== HISTORY ===== */
+        .history-item {
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
             display: flex;
-            flex-wrap: wrap;
-            gap: 15px;
-            margin-bottom: 20px;
+            justify-content: space-between;
             align-items: center;
-        }
-        .status-row .item {
-            background: rgba(0,255,200,0.03);
-            padding: 6px 16px;
-            border-radius: 20px;
+            flex-wrap: wrap;
+            gap: 6px;
             font-size: 0.85em;
-            border: 1px solid rgba(0,255,200,0.04);
-            color: #5a6a8a;
         }
+        .history-item .uid { color: #00ffc8; font-weight: 600; }
+        .history-item .name { color: #e0e6ff; }
+        .history-item .likes { color: #00ff66; font-weight: 600; }
+        .history-item .time { color: #4a5580; font-size: 0.75em; }
         
-        /* Result Modal */
+        /* ===== RESULT MODAL ===== */
         .result-modal {
             display: none;
             position: fixed;
@@ -943,19 +1041,19 @@ WEBSITE_HTML = '''
         .result-modal.active { display: flex; }
         .result-box {
             background: #0e1430;
-            padding: 35px 40px;
-            border-radius: 20px;
-            max-width: 520px;
+            padding: 30px 35px;
+            border-radius: 18px;
+            max-width: 500px;
             width: 90%;
-            border: 1px solid rgba(0,255,200,0.1);
-            box-shadow: 0 0 60px rgba(0,255,200,0.05);
+            border: 1px solid rgba(0,255,200,0.08);
+            box-shadow: 0 0 60px rgba(0,255,200,0.04);
             animation: fadeInUp 0.4s ease;
         }
         .result-box h2 {
             font-family: 'Orbitron', monospace;
-            font-size: 1.3em;
+            font-size: 1.1em;
             color: #00ffc8;
-            margin-bottom: 18px;
+            margin-bottom: 15px;
             display: flex;
             align-items: center;
             gap: 10px;
@@ -963,62 +1061,68 @@ WEBSITE_HTML = '''
         .result-box .row {
             display: flex;
             justify-content: space-between;
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.03);
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.02);
         }
-        .result-box .row .label { color: #4a5580; }
-        .result-box .row .value { color: #00ff66; font-weight: 600; }
+        .result-box .row .label { color: #4a5580; font-size: 0.9em; }
+        .result-box .row .value { color: #00ff66; font-weight: 600; font-size: 0.9em; }
         .result-box .row .value-failed { color: #ff0044; }
         .result-box .close-btn {
-            margin-top: 18px;
-            padding: 10px 30px;
-            background: rgba(255,255,255,0.05);
+            margin-top: 16px;
+            padding: 10px;
+            background: rgba(255,255,255,0.04);
             color: #8a9abf;
-            border: 1px solid rgba(255,255,255,0.06);
+            border: 1px solid rgba(255,255,255,0.04);
             border-radius: 10px;
             cursor: pointer;
             font-weight: 600;
             width: 100%;
             transition: 0.3s;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.9em;
         }
-        .result-box .close-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+        .result-box .close-btn:hover { background: rgba(255,255,255,0.08); color: #fff; }
         
         .section { display: none; }
-        .section.active { display: block; animation: fadeInUp 0.4s ease; }
+        .section.active { display: block; animation: fadeInUp 0.35s ease; }
         
-        .history-item {
-            padding: 10px 0;
-            border-bottom: 1px solid rgba(255,255,255,0.02);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 8px;
-        }
-        .history-item .uid { color: #00ffc8; font-weight: 600; }
-        .history-item .name { color: #e0e6ff; }
-        .history-item .likes { color: #00ff66; font-weight: 600; }
-        .history-item .time { color: #4a5580; font-size: 0.8em; }
-        
-        @media (max-width: 768px) {
+        /* ===== RESPONSIVE ===== */
+        @media (max-width: 992px) {
             .sidebar { width: 60px; padding: 15px 0; }
             .sidebar .logo h2, .sidebar .logo small, .sidebar .nav-item span { display: none; }
-            .sidebar .nav-item { padding: 12px 18px; justify-content: center; }
-            .sidebar .nav-item i { font-size: 1.3em; }
+            .sidebar .nav-item { padding: 12px 18px; justify-content: center; margin: 2px 4px; }
+            .sidebar .nav-item i { font-size: 1.2em; }
             .main { margin-left: 60px; padding: 15px; width: calc(100% - 60px); }
-            .status-grid { grid-template-columns: repeat(3, 1fr); }
+            .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .header h1 { font-size: 1.2em; }
+            .top-buttons .top-btn { font-size: 0.75em; padding: 7px 14px; }
+        }
+        @media (max-width: 768px) {
+            .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+            .stat-card { padding: 12px 8px; min-height: 70px; }
+            .stat-card .num { font-size: 1.5em; }
+            .header-top { flex-direction: column; align-items: flex-start; }
+            .top-buttons { gap: 6px; }
+            .top-btn { font-size: 0.7em; padding: 6px 12px; }
+            .panel { padding: 14px 16px; }
+            .input-group input, .input-group select { min-width: 100px; font-size: 0.8em; padding: 8px 12px; }
+            .btn { font-size: 0.8em; padding: 8px 16px; min-height: 36px; }
+            .result-box { padding: 20px; }
         }
         @media (max-width: 480px) {
-            .status-grid { grid-template-columns: 1fr 1fr; }
+            .stats-grid { grid-template-columns: 1fr 1fr; }
             .sidebar { width: 50px; }
             .main { margin-left: 50px; padding: 10px; width: calc(100% - 50px); }
             .sidebar .nav-item { padding: 10px 12px; }
+            .top-buttons .top-btn { font-size: 0.65em; padding: 5px 10px; }
+            .status-row .item { font-size: 0.7em; padding: 4px 10px; }
+            .header h1 { font-size: 1em; }
+            .badge-auto { font-size: 0.65em; padding: 3px 10px; }
         }
     </style>
 </head>
 <body>
-    <!-- Sidebar -->
+    <!-- ===== SIDEBAR ===== -->
     <div class="sidebar">
         <div class="logo">
             <h2>HEX</h2>
@@ -1028,25 +1132,28 @@ WEBSITE_HTML = '''
         <div class="nav-item" onclick="showSection('likes20')"><i class="fas fa-crosshairs"></i> <span>20 Likes</span></div>
         <div class="nav-item" onclick="showSection('unlimited')"><i class="fas fa-infinity"></i> <span>Unlimited</span></div>
         <div class="nav-item" onclick="showSection('auto')"><i class="fas fa-clock"></i> <span>Auto Like</span></div>
-        <div class="nav-item" onclick="showSection('accounts')"><i class="fas fa-users"></i> <span>Accounts</span></div>
+        <div class="nav-item" onclick="showSection('verify')"><i class="fas fa-check-double"></i> <span>Verify</span></div>
         <div class="nav-item" onclick="showSection('history')"><i class="fas fa-history"></i> <span>History</span></div>
+        <div class="nav-item" onclick="showSection('accounts')"><i class="fas fa-users"></i> <span>Accounts</span></div>
+        <div class="nav-item" onclick="showSection('stats')"><i class="fas fa-chart-bar"></i> <span>Statistics</span></div>
+        <div class="nav-item" onclick="showSection('logs')"><i class="fas fa-terminal"></i> <span>Logs</span></div>
         <div class="nav-item" onclick="showSection('settings')"><i class="fas fa-cog"></i> <span>Settings</span></div>
     </div>
     
-    <!-- Main -->
+    <!-- ===== MAIN ===== -->
     <div class="main">
         <div class="container">
             <!-- Header -->
             <div class="header">
                 <div class="header-top">
                     <div>
-                        <h1><i class="fas fa-bolt" style="font-size:0.8em;"></i> HEX CHEATS</h1>
+                        <h1><i class="fas fa-bolt" style="font-size:0.7em;"></i> HEX CHEATS</h1>
                         <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at <span id="auto-time-display">4:02</span> AM IST</div>
                     </div>
-                    <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+                    <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
                         <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
-                        <span><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                        <button class="btn btn-ghost" onclick="location.reload()"><i class="fas fa-sync"></i></button>
+                        <span style="font-size:0.8em; color:#4a5580;"><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
+                        <button class="btn btn-ghost" onclick="location.reload()" style="padding:6px 12px; font-size:0.8em;"><i class="fas fa-sync"></i></button>
                     </div>
                 </div>
             </div>
@@ -1058,25 +1165,39 @@ WEBSITE_HTML = '''
                 <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
             </div>
             
-            <!-- Dashboard -->
+            <!-- Top Action Buttons -->
+            <div class="top-buttons">
+                <button class="top-btn active-btn" onclick="showSection('dashboard')"><i class="fas fa-home"></i> Dashboard</button>
+                <button class="top-btn" onclick="showSection('likes20')"><i class="fas fa-crosshairs"></i> 20 Likes</button>
+                <button class="top-btn" onclick="showSection('unlimited')"><i class="fas fa-infinity"></i> Unlimited</button>
+                <button class="top-btn" onclick="showSection('auto')"><i class="fas fa-clock"></i> Auto Like</button>
+                <button class="top-btn" onclick="showSection('verify')"><i class="fas fa-check-double"></i> Verify</button>
+                <button class="top-btn" onclick="showSection('history')"><i class="fas fa-history"></i> History</button>
+                <button class="top-btn" onclick="showSection('accounts')"><i class="fas fa-users"></i> Accounts</button>
+                <button class="top-btn" onclick="showSection('stats')"><i class="fas fa-chart-bar"></i> Stats</button>
+                <button class="top-btn" onclick="showSection('logs')"><i class="fas fa-terminal"></i> Logs</button>
+                <button class="top-btn" onclick="showSection('settings')"><i class="fas fa-cog"></i> Settings</button>
+            </div>
+            
+            <!-- ===== DASHBOARD ===== -->
             <div id="section-dashboard" class="section active">
-                <div class="status-grid">
-                    <div class="status-card"><div class="num num-accounts" id="total-accounts">0</div><div class="lbl"><i class="fas fa-users"></i> Accounts</div></div>
-                    <div class="status-card"><div class="num num-working" id="working-count">0</div><div class="lbl"><i class="fas fa-check-circle"></i> Working</div></div>
-                    <div class="status-card"><div class="num num-timeout" id="timeout-count">0</div><div class="lbl"><i class="fas fa-exclamation-triangle"></i> Limit</div></div>
-                    <div class="status-card"><div class="num num-likes" id="total-likes">0</div><div class="lbl"><i class="fas fa-heart"></i> Likes</div></div>
-                    <div class="status-card"><div class="num num-targets" id="targets-liked">0</div><div class="lbl"><i class="fas fa-bullseye"></i> Targets</div></div>
-                    <div class="status-card"><div class="num num-queue" id="auto-users">0</div><div class="lbl"><i class="fas fa-list-ul"></i> Queue</div></div>
+                <div class="stats-grid">
+                    <div class="stat-card"><div class="icon" style="color:#4488ff;"><i class="fas fa-users"></i></div><div class="num num-accounts" id="total-accounts">0</div><div class="lbl">Accounts</div></div>
+                    <div class="stat-card"><div class="icon" style="color:#00ff66;"><i class="fas fa-check-circle"></i></div><div class="num num-working" id="working-count">0</div><div class="lbl">Working</div></div>
+                    <div class="stat-card"><div class="icon" style="color:#ff0044;"><i class="fas fa-exclamation-triangle"></i></div><div class="num num-timeout" id="timeout-count">0</div><div class="lbl">Limit</div></div>
+                    <div class="stat-card"><div class="icon" style="color:#cc66ff;"><i class="fas fa-heart"></i></div><div class="num num-likes" id="total-likes">0</div><div class="lbl">Likes</div></div>
+                    <div class="stat-card"><div class="icon" style="color:#ffcc00;"><i class="fas fa-bullseye"></i></div><div class="num num-targets" id="targets-liked">0</div><div class="lbl">Targets</div></div>
+                    <div class="stat-card"><div class="icon" style="color:#00ffc8;"><i class="fas fa-list-ul"></i></div><div class="num num-queue" id="auto-users">0</div><div class="lbl">Queue</div></div>
                 </div>
             </div>
             
-            <!-- 20 Likes -->
+            <!-- ===== 20 LIKES ===== -->
             <div id="section-likes20" class="section">
                 <div class="panel">
                     <h2><i class="fas fa-crosshairs"></i> 20 Likes</h2>
                     <div class="input-group">
                         <input type="number" id="target-uid-20" placeholder="Enter Free Fire UID" />
-                        <select id="server-20" style="padding:12px 16px; border-radius:10px; border:1px solid rgba(0,255,200,0.08); background:rgba(0,0,0,0.3); color:#e0e6ff; font-size:1em; min-width:120px;">
+                        <select id="server-20">
                             <option value="IND">India</option>
                             <option value="BD">Bangladesh</option>
                             <option value="MENA">MENA</option>
@@ -1092,13 +1213,13 @@ WEBSITE_HTML = '''
                 </div>
             </div>
             
-            <!-- Unlimited -->
+            <!-- ===== UNLIMITED ===== -->
             <div id="section-unlimited" class="section">
                 <div class="panel">
                     <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
                     <div class="input-group">
                         <input type="number" id="target-uid-unlimited" placeholder="Enter Free Fire UID" />
-                        <select id="server-unlimited" style="padding:12px 16px; border-radius:10px; border:1px solid rgba(0,255,200,0.08); background:rgba(0,0,0,0.3); color:#e0e6ff; font-size:1em; min-width:120px;">
+                        <select id="server-unlimited">
                             <option value="IND">India</option>
                             <option value="BD">Bangladesh</option>
                             <option value="MENA">MENA</option>
@@ -1114,14 +1235,14 @@ WEBSITE_HTML = '''
                 </div>
             </div>
             
-            <!-- Auto Like -->
+            <!-- ===== AUTO LIKE ===== -->
             <div id="section-auto" class="section">
                 <div class="panel">
                     <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                    <p style="color:#4a5580; margin-bottom:15px;">Daily auto-like. All accounts send at same time. Stops after verified limit.</p>
+                    <p style="color:#4a5580; margin-bottom:12px; font-size:0.85em;">Daily auto-like. All accounts send at same time. Stops after verified limit.</p>
                     <div class="input-group">
                         <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
-                        <input type="number" id="auto-limit" placeholder="Verified Limit" value="220" style="width:140px; padding:12px 16px; border-radius:10px; border:1px solid rgba(0,255,200,0.08); background:rgba(0,0,0,0.3); color:#e0e6ff; font-size:1em;" />
+                        <input type="number" id="auto-limit" placeholder="Verified Limit" value="220" style="width:130px;" />
                         <button class="btn btn-success" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add</button>
                         <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear</button>
                     </div>
@@ -1130,7 +1251,37 @@ WEBSITE_HTML = '''
                 </div>
             </div>
             
-            <!-- Accounts -->
+            <!-- ===== VERIFY ===== -->
+            <div id="section-verify" class="section">
+                <div class="panel">
+                    <h2><i class="fas fa-check-double"></i> Verify Likes</h2>
+                    <div class="input-group">
+                        <input type="number" id="target-uid-verify" placeholder="Enter Free Fire UID" />
+                        <select id="server-verify">
+                            <option value="IND">India</option>
+                            <option value="BD">Bangladesh</option>
+                            <option value="MENA">MENA</option>
+                            <option value="BR">Brazil</option>
+                            <option value="US">US</option>
+                            <option value="SAC">SAC</option>
+                            <option value="NA">NA</option>
+                            <option value="RU">Russia</option>
+                        </select>
+                        <button class="btn btn-primary" onclick="verifyLikes()"><i class="fas fa-check-double"></i> Verify</button>
+                    </div>
+                    <div id="verify-result" style="margin-top:12px;"></div>
+                </div>
+            </div>
+            
+            <!-- ===== HISTORY ===== -->
+            <div id="section-history" class="section">
+                <div class="panel">
+                    <h2><i class="fas fa-history"></i> Like History</h2>
+                    <div id="history-list"></div>
+                </div>
+            </div>
+            
+            <!-- ===== ACCOUNTS ===== -->
             <div id="section-accounts" class="section">
                 <div class="section-title"><i class="fas fa-users"></i> Account Status <span class="live-dot"></span></div>
                 <div class="glass" style="padding:0; overflow:hidden;">
@@ -1141,33 +1292,41 @@ WEBSITE_HTML = '''
                 </div>
             </div>
             
-            <!-- History -->
-            <div id="section-history" class="section">
+            <!-- ===== STATISTICS ===== -->
+            <div id="section-stats" class="section">
                 <div class="panel">
-                    <h2><i class="fas fa-history"></i> Like History</h2>
-                    <div id="history-list"></div>
+                    <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
+                    <div id="stats-content"></div>
                 </div>
             </div>
             
-            <!-- Settings -->
+            <!-- ===== LOGS ===== -->
+            <div id="section-logs" class="section">
+                <div class="panel">
+                    <h2><i class="fas fa-terminal"></i> Activity Logs</h2>
+                    <div id="logs-content" style="font-family: 'Courier New', monospace; font-size:0.8em; max-height:300px; overflow-y:auto;"></div>
+                </div>
+            </div>
+            
+            <!-- ===== SETTINGS ===== -->
             <div id="section-settings" class="section">
                 <div class="panel">
                     <h2><i class="fas fa-cog"></i> Settings</h2>
-                    <div style="margin-bottom:15px;">
-                        <label style="color:#4a5580;">Auto-Like Time (IST)</label>
-                        <div class="input-group" style="margin-top:8px;">
-                            <input type="number" id="set-hour" placeholder="Hour" value="4" style="width:80px; padding:12px 16px; border-radius:10px; border:1px solid rgba(0,255,200,0.08); background:rgba(0,0,0,0.3); color:#e0e6ff; font-size:1em;" />
-                            <input type="number" id="set-minute" placeholder="Minute" value="2" style="width:80px; padding:12px 16px; border-radius:10px; border:1px solid rgba(0,255,200,0.08); background:rgba(0,0,0,0.3); color:#e0e6ff; font-size:1em;" />
+                    <div style="margin-bottom:12px;">
+                        <label style="color:#4a5580; font-size:0.85em;">Auto-Like Time (IST)</label>
+                        <div class="input-group" style="margin-top:6px;">
+                            <input type="number" id="set-hour" placeholder="Hour" value="4" style="width:80px;" />
+                            <input type="number" id="set-minute" placeholder="Minute" value="2" style="width:80px;" />
                             <button class="btn btn-primary" onclick="setAutoTime()"><i class="fas fa-save"></i> Save Time</button>
                         </div>
                     </div>
-                    <div id="time-status" style="color:#00ff66;"></div>
+                    <div id="time-status" style="color:#00ff66; font-size:0.85em;"></div>
                 </div>
             </div>
         </div>
     </div>
     
-    <!-- Result Modal -->
+    <!-- ===== RESULT MODAL ===== -->
     <div class="result-modal" id="resultModal">
         <div class="result-box">
             <h2><i class="fas fa-check-circle"></i> Like Result</h2>
@@ -1184,12 +1343,19 @@ WEBSITE_HTML = '''
     </div>
 
     <script>
+        // ============================================
+        // UI FUNCTIONS
+        // ============================================
         function showSection(id) {
             document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
             document.getElementById('section-' + id).classList.add('active');
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             document.querySelector(`.nav-item[onclick*="${id}"]`).classList.add('active');
+            document.querySelectorAll('.top-btn').forEach(el => el.classList.remove('active-btn'));
+            document.querySelector(`.top-btn[onclick*="${id}"]`)?.classList.add('active-btn');
             if (id === 'history') loadHistory();
+            if (id === 'stats') loadStats();
+            if (id === 'logs') loadLogs();
         }
         
         function formatTime(iso) {
@@ -1197,6 +1363,9 @@ WEBSITE_HTML = '''
             try { const d = new Date(iso); return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return iso; }
         }
         
+        // ============================================
+        // DATA LOADING
+        // ============================================
         function loadData() {
             fetch('/api/dashboard-data')
                 .then(res => res.json())
@@ -1214,6 +1383,7 @@ WEBSITE_HTML = '''
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
                     document.getElementById('auto-time-display').textContent = data.auto_time || '4:02';
                     
+                    // Auto queue
                     let userHtml = '';
                     if (data.users && data.users.length > 0) {
                         data.users.forEach(user => {
@@ -1225,6 +1395,7 @@ WEBSITE_HTML = '''
                     }
                     document.getElementById('auto-user-list').innerHTML = userHtml;
                     
+                    // Accounts table
                     let tableHtml = '';
                     if (data.accounts && data.accounts.length > 0) {
                         data.accounts.forEach(acc => {
@@ -1258,6 +1429,58 @@ WEBSITE_HTML = '''
                 });
         }
         
+        function loadStats() {
+            fetch('/api/stats')
+                .then(res => res.json())
+                .then(data => {
+                    let html = `
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
+                            <span style="color:#4a5580;">Total Likes Sent</span>
+                            <span style="color:#00ff66;font-weight:600;">${data.total_likes_sent}</span>
+                        </div>
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
+                            <span style="color:#4a5580;">Total Targets</span>
+                            <span style="color:#00ff66;font-weight:600;">${data.total_targets}</span>
+                        </div>
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
+                            <span style="color:#4a5580;">Working Accounts</span>
+                            <span style="color:#00ff66;font-weight:600;">${data.working_accounts}</span>
+                        </div>
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
+                            <span style="color:#4a5580;">Auto Queue Users</span>
+                            <span style="color:#00ff66;font-weight:600;">${data.auto_users}</span>
+                        </div>
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;">
+                            <span style="color:#4a5580;">Next Reset</span>
+                            <span style="color:#ffcc00;font-weight:600;">${data.next_reset}</span>
+                        </div>
+                    `;
+                    document.getElementById('stats-content').innerHTML = html;
+                });
+        }
+        
+        function loadLogs() {
+            fetch('/api/logs')
+                .then(res => res.json())
+                .then(data => {
+                    let html = '';
+                    if (data.logs && data.logs.length > 0) {
+                        data.logs.forEach(log => {
+                            html += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.02);color:#4a5580;">
+                                <span style="color:#00ffc8;">[${log.time}]</span> 
+                                <span style="color:${log.type === 'success' ? '#00ff66' : log.type === 'error' ? '#ff0044' : '#ffcc00'}">${log.message}</span>
+                            </div>`;
+                        });
+                    } else {
+                        html = '<div class="note">No logs yet</div>';
+                    }
+                    document.getElementById('logs-content').innerHTML = html;
+                });
+        }
+        
+        // ============================================
+        // RESULT MODAL
+        // ============================================
         function showResult(data) {
             document.getElementById('res-name').textContent = data.username || 'Unknown';
             document.getElementById('res-sent').textContent = data.likes_sent || 0;
@@ -1269,13 +1492,18 @@ WEBSITE_HTML = '''
         }
         
         function closeResult() { document.getElementById('resultModal').classList.remove('active'); }
+        document.getElementById('resultModal').addEventListener('click', function(e) { if (e.target === this) closeResult(); });
         
+        // ============================================
+        // ACTIONS
+        // ============================================
         function getServer() {
             const activeSection = document.querySelector('.section.active');
             if (activeSection) {
                 const id = activeSection.id;
                 if (id === 'section-likes20') return document.getElementById('server-20').value;
                 if (id === 'section-unlimited') return document.getElementById('server-unlimited').value;
+                if (id === 'section-verify') return document.getElementById('server-verify').value;
             }
             return 'IND';
         }
@@ -1286,6 +1514,7 @@ WEBSITE_HTML = '''
                 const id = activeSection.id;
                 if (id === 'section-likes20') return document.getElementById('target-uid-20').value.trim();
                 if (id === 'section-unlimited') return document.getElementById('target-uid-unlimited').value.trim();
+                if (id === 'section-verify') return document.getElementById('target-uid-verify').value.trim();
             }
             return '';
         }
@@ -1296,8 +1525,8 @@ WEBSITE_HTML = '''
             if (!uid) { alert('Enter a UID'); return; }
             if (!confirm(`Send ${count === 999999 ? 'unlimited' : count} likes to ${uid} on ${server}?`)) return;
             
-            const btns = document.querySelectorAll('.btn-primary, .btn-rocket');
-            const btn = btns[0];
+            const btn = document.querySelector('.btn-primary, .btn-rocket');
+            if (!btn) return;
             const originalText = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
             btn.disabled = true;
@@ -1317,6 +1546,28 @@ WEBSITE_HTML = '''
                 } else {
                     alert('Error: ' + (data.error || 'Unknown error'));
                 }
+            });
+        }
+        
+        function verifyLikes() {
+            const uid = getUid();
+            const server = getServer();
+            if (!uid) { alert('Enter a UID'); return; }
+            
+            fetch('/verify-likes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ uid, server_name: server, key: 'JMLB' })
+            })
+            .then(res => res.json())
+            .then(data => {
+                document.getElementById('verify-result').innerHTML = `
+                    <div style="background:rgba(0,255,200,0.03);padding:14px;border-radius:10px;border:1px solid rgba(0,255,200,0.04);">
+                        <div style="color:#00ffc8;font-weight:600;font-size:1em;">UID: ${data.uid}</div>
+                        <div style="color:#e0e6ff;font-size:0.9em;">Name: ${data.username}</div>
+                        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.85em;color:#4a5580;"><span>Total Likes</span><span style="color:#00ff66;font-weight:600;">${data.likes}</span></div>
+                    </div>
+                `;
             });
         }
         
@@ -1369,8 +1620,9 @@ WEBSITE_HTML = '''
             });
         }
         
-        document.getElementById('resultModal').addEventListener('click', function(e) { if (e.target === this) closeResult(); });
-        
+        // ============================================
+        // INIT
+        // ============================================
         loadData();
         setInterval(loadData, 3000);
         setInterval(loadHistory, 5000);
@@ -1431,6 +1683,52 @@ def dashboard_data():
 def get_history():
     return jsonify({'history': like_history[-50:]})
 
+@app.route('/api/stats')
+def get_stats():
+    total_likes = sum(len(v) for v in liked_cache.values())
+    total_targets = len(liked_cache)
+    working = sum(1 for v in account_status.values() if v.get('status') == 'working')
+    return jsonify({
+        'total_likes_sent': total_likes,
+        'total_targets': total_targets,
+        'working_accounts': working,
+        'auto_users': len(auto_like_users),
+        'next_reset': get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
+    })
+
+@app.route('/api/logs')
+def get_logs():
+    logs = []
+    try:
+        with open('logs.txt', 'r') as f:
+            lines = f.readlines()[-50:]
+            for line in lines:
+                parts = line.strip().split('|')
+                if len(parts) == 3:
+                    logs.append({'time': parts[0], 'type': parts[1], 'message': parts[2]})
+    except:
+        pass
+    return jsonify({'logs': logs})
+
+@app.route('/verify-likes', methods=['POST'])
+def verify_likes():
+    data = request.get_json()
+    uid = data.get('uid', '').strip()
+    server_name = data.get('server_name', 'IND').upper()
+    key = data.get('key', 'JMLB')
+    if key != "JMLB":
+        return jsonify({'error': 'Invalid key'})
+    if not uid:
+        return jsonify({'error': 'UID required'})
+    user_info = asyncio.run(get_user_info(uid, server_name))
+    if user_info:
+        return jsonify({
+            'uid': user_info['uid'],
+            'username': user_info['name'],
+            'likes': user_info['likes']
+        })
+    return jsonify({'error': 'User not found'})
+
 @app.route('/send-likes', methods=['POST'])
 def send_likes():
     data = request.get_json()
@@ -1455,7 +1753,6 @@ def send_likes():
     base_url = REGION_URLS.get(server_name, 'https://clientbp.ggpolarbear.com')
     like_url = f"{base_url}/LikeProfile"
     
-    # For 20 likes, use verified limit to stop at exactly 20
     if count == 20:
         result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, 20, 20))
     else:
@@ -1651,7 +1948,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ HEX CHEATS – Premium Auto-Like System Started")
+print("✅ HEX CHEATS – Premium Cyberpunk Admin Panel Started")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
