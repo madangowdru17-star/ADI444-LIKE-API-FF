@@ -546,7 +546,7 @@ def set_auto_time(hour, minute):
     return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
 
 # ============================================================
-# PREMIUM CYBERPUNK GAMING DASHBOARD
+# PREMIUM GAMING DASHBOARD – NEW COLOR PALETTE
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -556,7 +556,7 @@ WEBSITE_HTML = '''
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>HEX CHEATS</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         /* ===== RESET & BASE ===== */
         * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -566,216 +566,171 @@ WEBSITE_HTML = '''
             color: #F8FAFC;
             min-height: 100vh;
             background-image: 
-                radial-gradient(circle at 15% 20%, rgba(0,229,255,0.03) 0%, transparent 50%),
-                radial-gradient(circle at 85% 80%, rgba(168,85,247,0.03) 0%, transparent 50%);
+                radial-gradient(circle at 15% 20%, rgba(0,229,255,0.04) 0%, transparent 50%),
+                radial-gradient(circle at 85% 80%, rgba(77,124,254,0.04) 0%, transparent 50%);
         }
         
         /* ===== SCROLLBAR ===== */
-        ::-webkit-scrollbar { width: 5px; }
-        ::-webkit-scrollbar-track { background: #161B22; }
-        ::-webkit-scrollbar-thumb { background: #2B3442; border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: #00E5FF; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
+        ::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,229,255,0.35); }
         
         /* ===== ANIMATIONS ===== */
-        @keyframes fadeUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes glowPulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
-        @keyframes countUp { from { opacity: 0; transform: scale(0.8); } to { opacity: 1; transform: scale(1); } }
-        @keyframes titleGlow { 0%,100% { text-shadow: 0 0 20px rgba(0,229,255,0.2); } 50% { text-shadow: 0 0 40px rgba(0,229,255,0.4); } }
+        @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes neonPulse { 0%,100% { box-shadow: 0 0 15px rgba(0,229,255,0.05), 0 0 30px rgba(0,229,255,0.02); } 50% { box-shadow: 0 0 25px rgba(0,229,255,0.12), 0 0 50px rgba(0,229,255,0.04); } }
+        @keyframes glowPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+        @keyframes titleGlow { 0%,100% { text-shadow: 0 0 20px rgba(0,229,255,0.2), 0 0 40px rgba(0,229,255,0.05); } 50% { text-shadow: 0 0 30px rgba(0,229,255,0.35), 0 0 60px rgba(0,229,255,0.1); } }
         
-        .fade-up { animation: fadeUp 0.5s ease forwards; }
-        .count-up { animation: countUp 0.6s ease forwards; }
+        .fade-in { animation: fadeInUp 0.4s ease forwards; }
         
-        /* ===== LAYOUT ===== */
+        /* ===== MAIN CONTAINER ===== */
         .main {
             max-width: 1400px;
             margin: 0 auto;
-            padding: 20px 24px;
+            padding: 24px 28px;
             width: 100%;
         }
         
-        /* ===== HEADER ===== */
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-            padding: 16px 20px;
-            background: rgba(22,27,34,0.6);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(43,52,66,0.4);
-            border-radius: 18px;
-            margin-bottom: 20px;
+        /* ===== TITLE ===== */
+        .title-section {
+            text-align: center;
+            padding: 18px 0 10px 0;
+            margin-bottom: 8px;
         }
-        .header-left h1 {
+        .title-section h1 {
             font-family: 'Orbitron', monospace;
-            font-size: 1.2em;
-            font-weight: 700;
-            background: linear-gradient(135deg, #00E5FF, #4D7CFE);
+            font-size: 2.4em;
+            font-weight: 900;
+            background: linear-gradient(135deg, #00E5FF, #00E676);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            letter-spacing: 1px;
+            letter-spacing: 3px;
             animation: titleGlow 3s ease-in-out infinite;
         }
-        .header-left .sub {
-            font-size: 0.65em;
+        .title-section .sub-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85em;
             color: #A8B3CF;
-            letter-spacing: 4px;
+            letter-spacing: 6px;
             text-transform: uppercase;
-        }
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 14px;
-        }
-        .header-time {
-            font-size: 0.8em;
-            color: #A8B3CF;
-            background: rgba(0,0,0,0.3);
-            padding: 6px 14px;
-            border-radius: 10px;
-            border: 1px solid rgba(43,52,66,0.3);
-            font-family: 'Orbitron', monospace;
+            margin-top: 2px;
+            font-weight: 400;
         }
         
         /* ===== GLASS CARDS ===== */
         .glass {
-            background: rgba(28,33,40,0.7);
+            background: rgba(22,27,34,0.85);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(43,52,66,0.3);
-            border-radius: 18px;
+            border: 1px solid rgba(43,52,66,0.5);
+            box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+            border-radius: 16px;
             transition: 0.3s;
         }
-        .glass:hover { border-color: rgba(0,229,255,0.15); }
-        
-        .glass-glow {
-            background: rgba(28,33,40,0.6);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(43,52,66,0.3);
-            border-radius: 18px;
-            transition: 0.3s;
-            box-shadow: 0 4px 30px rgba(0,0,0,0.2);
-        }
-        .glass-glow:hover { 
-            border-color: rgba(0,229,255,0.15);
-            box-shadow: 0 4px 40px rgba(0,229,255,0.04);
-            transform: translateY(-2px);
+        .glass:hover { 
+            border-color: rgba(0,229,255,0.15); 
         }
         
-        /* ===== STATUS BAR ===== */
-        .status-bar {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-            gap: 12px;
-            margin-bottom: 20px;
+        /* ===== STATUS ROW ===== */
+        .status-row {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 14px;
+            margin-bottom: 18px;
+            justify-content: center;
+            padding: 4px 0;
         }
-        .status-item {
-            padding: 12px 16px;
+        .status-row .item {
             background: rgba(22,27,34,0.5);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(43,52,66,0.2);
-            border-radius: 14px;
+            padding: 6px 18px;
+            border-radius: 20px;
+            font-size: 0.82em;
+            border: 1px solid rgba(43,52,66,0.4);
+            color: #A8B3CF;
             display: flex;
             align-items: center;
-            gap: 12px;
-            transition: 0.3s;
+            gap: 8px;
         }
-        .status-item:hover { border-color: rgba(0,229,255,0.1); }
-        .status-item .icon { 
-            font-size: 1.1em; 
-            color: #00E5FF;
-            opacity: 0.7;
-            width: 28px;
-            text-align: center;
-        }
-        .status-item .info .label {
-            font-size: 0.65em;
-            color: #A8B3CF;
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-        }
-        .status-item .info .value {
-            font-size: 0.85em;
-            font-weight: 600;
-            color: #F8FAFC;
-        }
+        .status-row .item i { color: #00E5FF; font-size: 0.9em; }
+        .status-row .item span { color: #F8FAFC; font-weight: 500; }
         
-        /* ===== NAV GRID ===== */
+        /* ===== TOP NAV BUTTONS ===== */
         .nav-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
             gap: 10px;
             margin-bottom: 22px;
         }
         .nav-btn {
             padding: 12px 14px;
-            border: 1px solid rgba(43,52,66,0.3);
-            border-radius: 14px;
+            border: 1px solid rgba(43,52,66,0.4);
+            border-radius: 16px;
             cursor: pointer;
             font-weight: 600;
-            font-size: 0.78em;
+            font-size: 0.8em;
             transition: 0.3s;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
             font-family: 'Inter', sans-serif;
-            background: rgba(28,33,40,0.4);
+            letter-spacing: 0.3px;
+            background: #232A36;
             color: #A8B3CF;
             min-height: 44px;
             text-align: center;
-            letter-spacing: 0.3px;
         }
         .nav-btn:hover { 
-            background: rgba(0,229,255,0.05); 
-            color: #F8FAFC;
+            background: rgba(0,229,255,0.06); 
+            color: #00E5FF; 
             transform: translateY(-2px);
             border-color: rgba(0,229,255,0.15);
-            box-shadow: 0 4px 20px rgba(0,229,255,0.04);
+            box-shadow: 0 0 20px rgba(0,229,255,0.05);
         }
         .nav-btn.active-nav {
             background: linear-gradient(135deg, rgba(0,229,255,0.12), rgba(0,230,118,0.08));
             color: #00E5FF;
             border-color: rgba(0,229,255,0.2);
-            box-shadow: 0 0 30px rgba(0,229,255,0.05);
+            box-shadow: 0 0 30px rgba(0,229,255,0.06);
+            animation: neonPulse 2.5s infinite;
         }
         .nav-btn i { font-size: 0.9em; }
         
         /* ===== STATS GRID ===== */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
-            gap: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
             margin-bottom: 22px;
         }
         .stat-card {
             padding: 18px 14px;
             text-align: center;
-            background: rgba(28,33,40,0.5);
+            background: rgba(22,27,34,0.6);
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(43,52,66,0.2);
+            border: 1px solid rgba(43,52,66,0.3);
             border-radius: 16px;
             transition: 0.3s;
-            min-height: 95px;
+            min-height: 100px;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
         }
         .stat-card:hover { 
-            border-color: rgba(0,229,255,0.12);
+            border-color: rgba(0,229,255,0.08); 
             transform: translateY(-3px);
-            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            box-shadow: 0 8px 30px rgba(0,0,0,0.15);
         }
         .stat-card .num {
             font-family: 'Orbitron', monospace;
-            font-size: 2em;
+            font-size: 2.2em;
             font-weight: 700;
             line-height: 1.2;
         }
         .stat-card .lbl {
             color: #A8B3CF;
-            font-size: 0.65em;
+            font-size: 0.7em;
             margin-top: 5px;
             letter-spacing: 1.2px;
             text-transform: uppercase;
@@ -796,14 +751,14 @@ WEBSITE_HTML = '''
         .panel {
             padding: 20px 24px;
             margin-bottom: 20px;
-            background: rgba(28,33,40,0.5);
+            background: rgba(28,33,40,0.6);
             backdrop-filter: blur(8px);
-            border: 1px solid rgba(43,52,66,0.2);
+            border: 1px solid rgba(43,52,66,0.3);
             border-radius: 16px;
         }
         .panel h2 {
             color: #A8B3CF;
-            font-size: 0.85em;
+            font-size: 0.9em;
             margin-bottom: 14px;
             letter-spacing: 1.2px;
             text-transform: uppercase;
@@ -820,7 +775,7 @@ WEBSITE_HTML = '''
         .input-group input, .input-group select {
             padding: 10px 16px;
             border-radius: 12px;
-            border: 1px solid rgba(43,52,66,0.3);
+            border: 1px solid rgba(43,52,66,0.4);
             background: rgba(0,0,0,0.25);
             color: #F8FAFC;
             font-size: 0.9em;
@@ -833,13 +788,13 @@ WEBSITE_HTML = '''
             border-color: rgba(0,229,255,0.2);
             box-shadow: 0 0 20px rgba(0,229,255,0.04);
         }
-        .input-group select option { background: #161B22; }
+        .input-group select option { background: #0D1117; }
         
         /* ===== BUTTONS ===== */
         .btn {
             padding: 10px 22px;
             border: none;
-            border-radius: 12px;
+            border-radius: 16px;
             cursor: pointer;
             font-weight: 600;
             font-size: 0.85em;
@@ -853,11 +808,11 @@ WEBSITE_HTML = '''
         }
         .btn:hover { transform: translateY(-2px); }
         .btn-primary {
-            background: linear-gradient(135deg, #00E5FF, #4D7CFE);
+            background: linear-gradient(135deg, #00E5FF, #00E676);
             color: #0D1117;
             border: none;
         }
-        .btn-primary:hover { box-shadow: 0 0 30px rgba(0,229,255,0.15); }
+        .btn-primary:hover { box-shadow: 0 0 30px rgba(0,229,255,0.2); }
         .btn-success {
             background: rgba(0,230,118,0.12);
             color: #00E676;
@@ -877,8 +832,8 @@ WEBSITE_HTML = '''
         }
         .btn-warning:hover { background: rgba(255,193,7,0.2); }
         .btn-rocket {
-            background: linear-gradient(135deg, #FF4D6D, #FF6B4A);
-            color: #fff;
+            background: linear-gradient(135deg, #FF4D6D, #FF6B8A);
+            color: #0D1117;
             border: none;
         }
         .btn-rocket:hover { box-shadow: 0 0 30px rgba(255,77,109,0.2); transform: scale(1.02); }
@@ -897,13 +852,13 @@ WEBSITE_HTML = '''
             margin-top: 12px;
         }
         .user-item {
-            background: rgba(0,229,255,0.04);
+            background: rgba(22,27,34,0.5);
             padding: 6px 16px;
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
             gap: 10px;
-            border: 1px solid rgba(43,52,66,0.2);
+            border: 1px solid rgba(43,52,66,0.3);
             margin: 3px;
             font-size: 0.85em;
             transition: 0.3s;
@@ -927,27 +882,27 @@ WEBSITE_HTML = '''
             width: 100%;
             border-collapse: collapse;
             background: rgba(0,0,0,0.15);
-            border-radius: 14px;
+            border-radius: 12px;
             overflow: hidden;
             margin-top: 10px;
             font-size: 0.85em;
         }
         th {
-            background: rgba(0,229,255,0.04);
+            background: rgba(0,229,255,0.03);
             padding: 10px 16px;
             text-align: left;
             font-weight: 600;
             color: #A8B3CF;
-            border-bottom: 1px solid rgba(43,52,66,0.2);
+            border-bottom: 1px solid rgba(43,52,66,0.3);
             text-transform: uppercase;
-            font-size: 0.65em;
+            font-size: 0.7em;
             letter-spacing: 0.8px;
         }
-        td { padding: 10px 16px; border-bottom: 1px solid rgba(43,52,66,0.1); }
+        td { padding: 10px 16px; border-bottom: 1px solid rgba(43,52,66,0.15); }
         .badge {
             padding: 2px 12px;
             border-radius: 20px;
-            font-size: 0.6em;
+            font-size: 0.65em;
             font-weight: 600;
             display: inline-block;
             text-transform: uppercase;
@@ -982,7 +937,7 @@ WEBSITE_HTML = '''
         /* ===== HISTORY ===== */
         .history-item {
             padding: 8px 0;
-            border-bottom: 1px solid rgba(43,52,66,0.1);
+            border-bottom: 1px solid rgba(43,52,66,0.2);
             display: flex;
             justify-content: space-between;
             align-items: center;
@@ -1000,7 +955,7 @@ WEBSITE_HTML = '''
             display: none;
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
+            background: rgba(0,0,0,0.8);
             z-index: 999;
             align-items: center;
             justify-content: center;
@@ -1008,14 +963,14 @@ WEBSITE_HTML = '''
         }
         .result-modal.active { display: flex; }
         .result-box {
-            background: #1C2128;
-            padding: 30px 34px;
-            border-radius: 20px;
+            background: #161B22;
+            padding: 32px 36px;
+            border-radius: 18px;
             max-width: 500px;
             width: 90%;
-            border: 1px solid rgba(43,52,66,0.3);
-            box-shadow: 0 0 60px rgba(0,0,0,0.4);
-            animation: fadeUp 0.4s ease;
+            border: 1px solid rgba(43,52,66,0.4);
+            box-shadow: 0 0 60px rgba(0,229,255,0.03);
+            animation: fadeInUp 0.4s ease;
         }
         .result-box h2 {
             font-family: 'Orbitron', monospace;
@@ -1030,7 +985,7 @@ WEBSITE_HTML = '''
             display: flex;
             justify-content: space-between;
             padding: 8px 0;
-            border-bottom: 1px solid rgba(43,52,66,0.1);
+            border-bottom: 1px solid rgba(43,52,66,0.2);
         }
         .result-box .row .label { color: #A8B3CF; font-size: 0.9em; }
         .result-box .row .value { color: #00E676; font-weight: 600; font-size: 0.9em; }
@@ -1040,7 +995,7 @@ WEBSITE_HTML = '''
             padding: 10px;
             background: rgba(255,255,255,0.04);
             color: #A8B3CF;
-            border: 1px solid rgba(43,52,66,0.2);
+            border: 1px solid rgba(43,52,66,0.3);
             border-radius: 12px;
             cursor: pointer;
             font-weight: 600;
@@ -1052,117 +1007,60 @@ WEBSITE_HTML = '''
         .result-box .close-btn:hover { background: rgba(255,255,255,0.08); color: #F8FAFC; }
         
         .section { display: none; }
-        .section.active { display: block; animation: fadeUp 0.35s ease; }
-        
-        /* ===== FOOTER ===== */
-        .footer {
-            text-align: center;
-            padding: 20px 0 10px;
-            border-top: 1px solid rgba(43,52,66,0.15);
-            margin-top: 20px;
-        }
-        .footer p {
-            font-size: 0.7em;
-            color: #A8B3CF;
-            letter-spacing: 1px;
-        }
-        .footer p span { color: #00E5FF; font-weight: 600; }
+        .section.active { display: block; animation: fadeInUp 0.35s ease; }
         
         /* ===== RESPONSIVE ===== */
         @media (max-width: 992px) {
-            .main { padding: 16px 18px; }
+            .main { padding: 18px 20px; }
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .nav-grid { grid-template-columns: repeat(4, 1fr); }
-            .header-left h1 { font-size: 1em; }
+            .title-section h1 { font-size: 2em; }
         }
         @media (max-width: 768px) {
-            .main { padding: 12px 14px; }
-            .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
+            .main { padding: 14px 16px; }
+            .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
             .stat-card { padding: 14px 10px; min-height: 80px; }
-            .stat-card .num { font-size: 1.5em; }
+            .stat-card .num { font-size: 1.6em; }
             .nav-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
             .nav-btn { font-size: 0.7em; padding: 10px 12px; min-height: 38px; }
-            .header { flex-direction: column; align-items: flex-start; }
-            .header-right { width: 100%; justify-content: flex-start; }
-            .status-bar { grid-template-columns: repeat(2, 1fr); }
+            .title-section h1 { font-size: 1.6em; }
+            .title-section .sub-title { font-size: 0.7em; letter-spacing: 4px; }
             .panel { padding: 16px 18px; }
             .input-group input, .input-group select { min-width: 100px; font-size: 0.8em; padding: 8px 12px; }
             .btn { font-size: 0.8em; padding: 8px 16px; min-height: 36px; }
             .result-box { padding: 20px; }
-            .header-left h1 { font-size: 0.9em; }
-            .header-time { font-size: 0.7em; padding: 4px 10px; }
-            .status-item { padding: 10px 14px; }
-            .status-item .info .value { font-size: 0.8em; }
+            .status-row .item { font-size: 0.7em; padding: 4px 12px; }
         }
         @media (max-width: 480px) {
-            .main { padding: 10px 10px; }
+            .main { padding: 10px 12px; }
             .stats-grid { grid-template-columns: 1fr 1fr; }
             .nav-grid { grid-template-columns: repeat(2, 1fr); }
             .nav-btn { font-size: 0.65em; padding: 8px 10px; min-height: 34px; }
-            .stat-card .num { font-size: 1.2em; }
+            .title-section h1 { font-size: 1.3em; }
+            .title-section .sub-title { font-size: 0.6em; letter-spacing: 3px; }
+            .stat-card .num { font-size: 1.3em; }
             .stat-card { padding: 12px 8px; min-height: 70px; }
-            .status-bar { grid-template-columns: 1fr 1fr; gap: 8px; }
-            .status-item { padding: 8px 12px; }
-            .status-item .info .value { font-size: 0.75em; }
-            .header-left h1 { font-size: 0.8em; }
-            .header-left .sub { font-size: 0.55em; letter-spacing: 2px; }
+            .status-row .item { font-size: 0.65em; padding: 3px 10px; }
         }
     </style>
 </head>
 <body>
-    <!-- ===== MAIN ===== -->
+    <!-- ===== MAIN CONTENT ===== -->
     <div class="main">
-        <!-- Header -->
-        <div class="header">
-            <div class="header-left">
-                <h1>HEX CHEATS</h1>
-                <div class="sub">Like Bot System</div>
-            </div>
-            <div class="header-right">
-                <div class="header-time" id="systemTime">Loading...</div>
-            </div>
+        <!-- Title Section -->
+        <div class="title-section">
+            <h1>HEX CHEATS</h1>
+            <div class="sub-title">Like Bot System</div>
         </div>
         
-        <!-- Status Bar -->
-        <div class="status-bar">
-            <div class="status-item">
-                <div class="icon"><i class="fas fa-play"></i></div>
-                <div class="info">
-                    <div class="label">Auto-Like</div>
-                    <div class="value" style="color:#00E676;">Running</div>
-                </div>
-            </div>
-            <div class="status-item">
-                <div class="icon"><i class="fas fa-sync-alt"></i></div>
-                <div class="info">
-                    <div class="label">Next Reset</div>
-                    <div class="value" id="next-reset">Loading...</div>
-                </div>
-            </div>
-            <div class="status-item">
-                <div class="icon"><i class="fas fa-history"></i></div>
-                <div class="info">
-                    <div class="label">Last Auto-Run</div>
-                    <div class="value" id="lastAutoRun">Never</div>
-                </div>
-            </div>
-            <div class="status-item">
-                <div class="icon"><i class="fas fa-info-circle"></i></div>
-                <div class="info">
-                    <div class="label">Status</div>
-                    <div class="value" id="autoRunStatus" style="color:#FFC107;">Idle</div>
-                </div>
-            </div>
-            <div class="status-item">
-                <div class="icon"><i class="fas fa-comment"></i></div>
-                <div class="info">
-                    <div class="label">Message</div>
-                    <div class="value" id="autoRunMessage" style="color:#A8B3CF;">-</div>
-                </div>
-            </div>
+        <!-- Status Row -->
+        <div class="status-row">
+            <div class="item"><i class="fas fa-history"></i> Last Auto-Run: <span id="lastAutoRun">Never</span></div>
+            <div class="item"><i class="fas fa-info-circle"></i> Status: <span id="autoRunStatus">Idle</span></div>
+            <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
         </div>
         
-        <!-- Top Navigation -->
+        <!-- Top Navigation Buttons -->
         <div class="nav-grid">
             <button class="nav-btn active-nav" onclick="showSection('dashboard')"><i class="fas fa-home"></i> Dashboard</button>
             <button class="nav-btn" onclick="showSection('likes20')"><i class="fas fa-crosshairs"></i> 20 Likes</button>
@@ -1179,12 +1077,12 @@ WEBSITE_HTML = '''
         <!-- ===== DASHBOARD ===== -->
         <div id="section-dashboard" class="section active">
             <div class="stats-grid">
-                <div class="stat-card"><div class="icon" style="color:#4D7CFE;"><i class="fas fa-users"></i></div><div class="num num-accounts count-up" id="total-accounts">0</div><div class="lbl">Accounts</div></div>
-                <div class="stat-card"><div class="icon" style="color:#00E676;"><i class="fas fa-check-circle"></i></div><div class="num num-working count-up" id="working-count">0</div><div class="lbl">Working</div></div>
-                <div class="stat-card"><div class="icon" style="color:#FF4D6D;"><i class="fas fa-exclamation-triangle"></i></div><div class="num num-timeout count-up" id="timeout-count">0</div><div class="lbl">Limit</div></div>
-                <div class="stat-card"><div class="icon" style="color:#A855F7;"><i class="fas fa-heart"></i></div><div class="num num-likes count-up" id="total-likes">0</div><div class="lbl">Likes</div></div>
-                <div class="stat-card"><div class="icon" style="color:#FFC107;"><i class="fas fa-bullseye"></i></div><div class="num num-targets count-up" id="targets-liked">0</div><div class="lbl">Targets</div></div>
-                <div class="stat-card"><div class="icon" style="color:#00E5FF;"><i class="fas fa-list-ul"></i></div><div class="num num-queue count-up" id="auto-users">0</div><div class="lbl">Queue</div></div>
+                <div class="stat-card"><div class="icon" style="color:#4D7CFE;"><i class="fas fa-users"></i></div><div class="num num-accounts" id="total-accounts">0</div><div class="lbl">Accounts</div></div>
+                <div class="stat-card"><div class="icon" style="color:#00E676;"><i class="fas fa-check-circle"></i></div><div class="num num-working" id="working-count">0</div><div class="lbl">Working</div></div>
+                <div class="stat-card"><div class="icon" style="color:#FF4D6D;"><i class="fas fa-exclamation-triangle"></i></div><div class="num num-timeout" id="timeout-count">0</div><div class="lbl">Limit</div></div>
+                <div class="stat-card"><div class="icon" style="color:#A855F7;"><i class="fas fa-heart"></i></div><div class="num num-likes" id="total-likes">0</div><div class="lbl">Likes</div></div>
+                <div class="stat-card"><div class="icon" style="color:#FFC107;"><i class="fas fa-bullseye"></i></div><div class="num num-targets" id="targets-liked">0</div><div class="lbl">Targets</div></div>
+                <div class="stat-card"><div class="icon" style="color:#00E5FF;"><i class="fas fa-list-ul"></i></div><div class="num num-queue" id="auto-users">0</div><div class="lbl">Queue</div></div>
             </div>
         </div>
         
@@ -1320,11 +1218,6 @@ WEBSITE_HTML = '''
                 <div id="time-status" style="color:#00E676; font-size:0.85em;"></div>
             </div>
         </div>
-        
-        <!-- Footer -->
-        <div class="footer">
-            <p>© 2026 <span>HEX CHEATS</span> · Like Bot System</p>
-        </div>
     </div>
     
     <!-- ===== RESULT MODAL ===== -->
@@ -1344,15 +1237,6 @@ WEBSITE_HTML = '''
     </div>
 
     <script>
-        // ===== SYSTEM TIME =====
-        function updateTime() {
-            const now = new Date();
-            const timeStr = now.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
-            document.getElementById('systemTime').textContent = timeStr + ' IST';
-        }
-        setInterval(updateTime, 1000);
-        updateTime();
-        
         // ============================================
         // UI FUNCTIONS
         // ============================================
@@ -1379,16 +1263,12 @@ WEBSITE_HTML = '''
                 .then(res => res.json())
                 .then(data => {
                     if (data.error) return;
-                    
-                    // Animate number changes
-                    animateNumber('total-accounts', data.total_accounts);
-                    animateNumber('working-count', data.working_count);
-                    animateNumber('timeout-count', data.timeout_count);
-                    animateNumber('total-likes', data.total_likes);
-                    animateNumber('targets-liked', data.targets_liked);
-                    animateNumber('auto-users', data.auto_users);
-                    
-                    document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
+                    document.getElementById('total-accounts').textContent = data.total_accounts || 0;
+                    document.getElementById('working-count').textContent = data.working_count || 0;
+                    document.getElementById('timeout-count').textContent = data.timeout_count || 0;
+                    document.getElementById('total-likes').textContent = data.total_likes || 0;
+                    document.getElementById('targets-liked').textContent = data.targets_liked || 0;
+                    document.getElementById('auto-users').textContent = data.auto_users || 0;
                     document.getElementById('lastAutoRun').textContent = data.last_auto_run ? formatTime(data.last_auto_run) : 'Never';
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
@@ -1419,17 +1299,6 @@ WEBSITE_HTML = '''
                 });
         }
         
-        function animateNumber(id, target) {
-            const el = document.getElementById(id);
-            if (!el) return;
-            const current = parseInt(el.textContent) || 0;
-            if (current === target) return;
-            el.textContent = target;
-            el.classList.remove('count-up');
-            void el.offsetWidth;
-            el.classList.add('count-up');
-        }
-        
         function loadHistory() {
             fetch('/api/history')
                 .then(res => res.json())
@@ -1455,19 +1324,19 @@ WEBSITE_HTML = '''
                 .then(res => res.json())
                 .then(data => {
                     let html = `
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.1);">
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.2);">
                             <span style="color:#A8B3CF;">Total Likes Sent</span>
                             <span style="color:#00E676;font-weight:600;">${data.total_likes_sent}</span>
                         </div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.1);">
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.2);">
                             <span style="color:#A8B3CF;">Total Targets</span>
                             <span style="color:#00E676;font-weight:600;">${data.total_targets}</span>
                         </div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.1);">
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.2);">
                             <span style="color:#A8B3CF;">Working Accounts</span>
                             <span style="color:#00E676;font-weight:600;">${data.working_accounts}</span>
                         </div>
-                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.1);">
+                        <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(43,52,66,0.2);">
                             <span style="color:#A8B3CF;">Auto Queue Users</span>
                             <span style="color:#00E676;font-weight:600;">${data.auto_users}</span>
                         </div>
@@ -1487,7 +1356,7 @@ WEBSITE_HTML = '''
                     let html = '';
                     if (data.logs && data.logs.length > 0) {
                         data.logs.forEach(log => {
-                            html += `<div style="padding:4px 0;border-bottom:1px solid rgba(43,52,66,0.1);color:#A8B3CF;">
+                            html += `<div style="padding:4px 0;border-bottom:1px solid rgba(43,52,66,0.15);color:#A8B3CF;">
                                 <span style="color:#00E5FF;">[${log.time}]</span> 
                                 <span style="color:${log.type === 'success' ? '#00E676' : log.type === 'error' ? '#FF4D6D' : '#FFC107'}">${log.message}</span>
                             </div>`;
@@ -1583,7 +1452,7 @@ WEBSITE_HTML = '''
             .then(res => res.json())
             .then(data => {
                 document.getElementById('verify-result').innerHTML = `
-                    <div style="background:rgba(0,229,255,0.03);padding:14px;border-radius:12px;border:1px solid rgba(43,52,66,0.2);">
+                    <div style="background:rgba(22,27,34,0.5);padding:14px;border-radius:12px;border:1px solid rgba(43,52,66,0.3);">
                         <div style="color:#00E5FF;font-weight:600;font-size:1em;">UID: ${data.uid}</div>
                         <div style="color:#F8FAFC;font-size:0.9em;">Name: ${data.username}</div>
                         <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.85em;color:#A8B3CF;"><span>Total Likes</span><span style="color:#00E676;font-weight:600;">${data.likes}</span></div>
@@ -1968,7 +1837,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ HEX CHEATS – Premium Cyberpunk Gaming Dashboard Started")
+print("✅ HEX CHEATS – Premium Gaming Dashboard Started (New Color Palette)")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
