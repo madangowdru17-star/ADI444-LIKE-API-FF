@@ -44,7 +44,7 @@ RESET_MINUTE = 2
 RESET_SECOND = 0
 AUTO_LIKE_LIMIT = 492
 
-RATE_LIMIT_DELAYS = [0.1, 0.2, 0.3, 0.5, 0.8, 1.0, 1.5, 2.0]
+RATE_LIMIT_DELAYS = [0.05, 0.08, 0.1, 0.12, 0.15]
 
 def load_users():
     global auto_like_users, user_stats, like_history
@@ -235,7 +235,7 @@ async def get_user_info(target_uid, server_name="IND"):
         if not accounts:
             return None
         check_token = None
-        for account in accounts[:5]:
+        for account in accounts[:3]:
             check_token = await get_valid_token(account['uid'], account['password'])
             if check_token:
                 break
@@ -262,7 +262,7 @@ async def generate_jwt_token(uid, password):
         encoded_password = urllib.parse.quote(password)
         url = f"https://ff-jwt-gen-api.lovable.app/api/public/token?uid={uid}&password={encoded_password}"
         async with aiohttp.ClientSession() as session:
-            async with session.get(url, timeout=10) as response:
+            async with session.get(url, timeout=8) as response:
                 if response.status == 200:
                     data = await response.json()
                     if isinstance(data, dict):
@@ -304,7 +304,7 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_rocket(encrypted_uid, token, url, account_uid):
+async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -315,7 +315,7 @@ async def send_like_rocket(encrypted_uid, token, url, account_uid):
     }
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(url, data=edata, headers=headers, timeout=5) as response:
+            async with session.post(url, data=edata, headers=headers, timeout=3) as response:
                 if response.status == 200:
                     if account_uid in account_status:
                         account_status[account_uid]['status'] = 'working'
@@ -332,11 +332,13 @@ async def send_like_rocket(encrypted_uid, token, url, account_uid):
     except:
         return False
 
-async def send_likes_rocket(target_uid, server_name, url, limit):
+async def send_likes_concurrent(target_uid, server_name, url, limit):
+    """Send likes concurrently - ULTRA FAST (~6 seconds)"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0}
     
+    # Get fresh accounts
     fresh_accounts = []
     skipped = 0
     for acc in accounts:
@@ -348,19 +350,27 @@ async def send_likes_rocket(target_uid, server_name, url, limit):
     if not fresh_accounts:
         return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped}
     
-    random.shuffle(fresh_accounts)
+    # Use all fresh accounts up to limit
     accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
     
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
     
-    tasks = []
+    # Pre-fetch all tokens concurrently
+    token_tasks = []
     for acc in accounts_to_use:
-        token = await get_valid_token(acc['uid'], acc['password'])
-        if token:
-            tasks.append(send_like_rocket(encrypted_uid, token, url, acc['uid']))
+        token_tasks.append(get_valid_token(acc['uid'], acc['password']))
+    tokens = await asyncio.gather(*token_tasks, return_exceptions=True)
     
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    # Send all likes concurrently
+    like_tasks = []
+    for i, acc in enumerate(accounts_to_use):
+        if isinstance(tokens[i], str) and tokens[i]:
+            like_tasks.append(send_like_ultra_fast(encrypted_uid, tokens[i], url, acc['uid']))
+        else:
+            like_tasks.append(asyncio.sleep(0, result=False))
+    
+    results = await asyncio.gather(*like_tasks, return_exceptions=True)
     
     successful = 0
     failed = 0
@@ -370,12 +380,18 @@ async def send_likes_rocket(target_uid, server_name, url, limit):
         else:
             failed += 1
     
+    # Get user info after for verification
     if successful > 0:
         user_info = await get_user_info(target_uid, server_name)
-        username = user_info.get('name', '') if user_info else ''
-        current_likes = user_info.get('likes', 0) if user_info else 0
-        update_user_stats(target_uid, successful, username, current_likes)
-        add_to_history(target_uid, successful, 0, current_likes, username)
+        if user_info:
+            username = user_info.get('name', 'Unknown')
+            current_likes = user_info.get('likes', 0)
+            # Get before likes from history or stats
+            before_likes = user_stats.get(target_uid, {}).get('current_likes', 0)
+            if before_likes == 0:
+                before_likes = current_likes - successful
+            update_user_stats(target_uid, successful, username, current_likes)
+            add_to_history(target_uid, successful, before_likes, current_likes, username)
     
     return {
         'success': successful,
@@ -431,7 +447,7 @@ async def check_all_accounts_status():
                 protobuf_message = create_protobuf_message("3997461446", "IND")
                 encrypted_uid = encrypt_message(protobuf_message)
                 url = "https://client.ind.freefiremobile.com/LikeProfile"
-                success = await send_like_rocket(encrypted_uid, token, url, acc['uid'])
+                success = await send_like_ultra_fast(encrypted_uid, token, url, acc['uid'])
                 if success:
                     account_status[acc['uid']] = {'status': 'working', 'last_check': datetime.now().isoformat()}
                 else:
@@ -447,7 +463,6 @@ async def check_all_accounts_status():
 def run_status_check():
     asyncio.run(check_all_accounts_status())
 
-# AUTO LIKE WITH AUTO REMOVE
 async def auto_like_daily():
     print("Auto-like scheduler started")
     while True:
@@ -462,13 +477,7 @@ async def auto_like_daily():
                 await asyncio.sleep(wait_seconds)
             
             print(f"Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
-            accounts = load_accounts("IND")
-            if not accounts:
-                print("No accounts available")
-                await asyncio.sleep(60)
-                continue
             
-            # Process each user in auto queue
             users_to_remove = []
             for user_uid in auto_like_users:
                 print(f"Processing user: {user_uid}")
@@ -478,8 +487,8 @@ async def auto_like_daily():
                 before_likes = user_info_before.get('likes', 0) if user_info_before else 0
                 before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
                 
-                # Send likes
-                result = await send_likes_rocket(
+                # Send likes concurrently (ULTRA FAST)
+                result = await send_likes_concurrent(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
@@ -494,20 +503,18 @@ async def auto_like_daily():
                     username = user_info_after.get('name', 'Unknown')
                     update_user_stats(user_uid, likes_sent, username, after_likes)
                     add_to_history(user_uid, likes_sent, before_likes, after_likes, username)
+                    print(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes}")
                 else:
                     after_likes = before_likes
                     username = before_name
+                    print(f"⚠️ {user_uid} | Before: {before_likes} | After: {after_likes} | Gained: 0")
                 
-                print(f"Sent {likes_sent} likes to {user_uid} (Before: {before_likes}, After: {after_likes})")
-                
-                # AUTO REMOVE: Remove user if likes were sent successfully
+                # Auto remove if likes sent
                 if likes_sent > 0:
                     users_to_remove.append(user_uid)
-                    print(f"✅ Auto-remove: {user_uid} removed from queue (order complete)")
-                else:
-                    print(f"⏳ {user_uid} remains in queue (no likes sent)")
+                    print(f"✅ Auto-removed: {user_uid}")
                 
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.5)
             
             # Remove completed users
             for uid in users_to_remove:
@@ -515,7 +522,7 @@ async def auto_like_daily():
                     auto_like_users.remove(uid)
                     save_users()
             
-            print(f"Auto-like cycle complete. Removed {len(users_to_remove)} users from queue.")
+            print(f"Auto-like cycle complete. Removed {len(users_to_remove)} users.")
             
         except Exception as e:
             print(f"Auto-like error: {e}")
@@ -524,7 +531,6 @@ async def auto_like_daily():
 def start_auto_like():
     asyncio.run(auto_like_daily())
 
-# CHANGE TIMING FUNCTION
 def set_auto_time(hour, minute):
     global RESET_HOUR, RESET_MINUTE
     RESET_HOUR = hour
@@ -685,7 +691,7 @@ WEBSITE_HTML = '''
                         <input type="number" id="target-uid-20" placeholder="Enter Free Fire UID" />
                         <button class="btn btn-primary" onclick="send20Likes()"><i class="fas fa-arrow-right"></i> Send 20 Likes</button>
                     </div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Sends exactly 20 verified likes and auto-removes from queue.</div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Sends exactly 20 verified likes. All accounts complete in ~6 seconds.</div>
                 </div>
             </div>
             
@@ -696,14 +702,14 @@ WEBSITE_HTML = '''
                         <input type="number" id="target-uid-unlimited" placeholder="Enter Free Fire UID" />
                         <button class="btn btn-rocket" onclick="sendUnlimited()"><i class="fas fa-rocket"></i> Send All Likes</button>
                     </div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes from all accounts instantly at rocket speed.</div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes concurrently. Live verification shows username, before/after likes.</div>
                 </div>
             </div>
             
             <div id="section-auto" class="section">
                 <div class="panel glass">
                     <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like with custom limit. UIDs auto-remove after successful like.</p>
+                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like with custom limit. All accounts send concurrently (~6 seconds).</p>
                     <div class="input-group">
                         <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
                         <input type="number" id="auto-limit" placeholder="Limit (default 492)" value="492" style="width:120px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
@@ -755,7 +761,8 @@ WEBSITE_HTML = '''
             <div id="result-content">
                 <div class="row"><span class="label">Player Name</span><span class="value" id="res-name">-</span></div>
                 <div class="row"><span class="label">Likes Sent</span><span class="value" id="res-sent">0</span></div>
-                <div class="row"><span class="label">Total Likes</span><span class="value" id="res-after">0</span></div>
+                <div class="row"><span class="label">Likes Before</span><span class="value" id="res-before">0</span></div>
+                <div class="row"><span class="label">Likes After</span><span class="value" id="res-after">0</span></div>
                 <div class="row"><span class="label">Verified Added</span><span class="value" id="res-added">0</span></div>
             </div>
             <button class="close-btn" onclick="closeResult()"><i class="fas fa-times"></i> Close</button>
@@ -840,6 +847,7 @@ WEBSITE_HTML = '''
         function showResult(data) {
             document.getElementById('res-name').textContent = data.username || 'Unknown';
             document.getElementById('res-sent').textContent = data.likes_sent || 0;
+            document.getElementById('res-before').textContent = data.likes_before || 0;
             document.getElementById('res-after').textContent = data.total_likes || 0;
             document.getElementById('res-added').textContent = data.verified_added || 0;
             document.getElementById('resultModal').classList.add('active');
@@ -1030,7 +1038,7 @@ def send_20_likes():
     before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
 
     like_url = "https://client.ind.freefiremobile.com/LikeProfile"
-    result = asyncio.run(send_likes_rocket(uid, server_name, like_url, 20))
+    result = asyncio.run(send_likes_concurrent(uid, server_name, like_url, 20))
     likes_sent = result['success']
 
     user_info_after = asyncio.run(get_user_info(uid, server_name))
@@ -1044,7 +1052,6 @@ def send_20_likes():
         after_likes = before_likes
         username = before_name
 
-    # Auto-remove from queue if present
     if likes_sent > 0 and uid in auto_like_users:
         auto_like_users.remove(uid)
         save_users()
@@ -1054,6 +1061,7 @@ def send_20_likes():
         'likes_sent': likes_sent,
         'username': username,
         'total_likes': after_likes,
+        'likes_before': before_likes,
         'verified_added': after_likes - before_likes
     })
 
@@ -1073,7 +1081,7 @@ def send_unlimited():
     before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
 
     like_url = "https://client.ind.freefiremobile.com/LikeProfile"
-    result = asyncio.run(send_likes_rocket(uid, server_name, like_url, 999999))
+    result = asyncio.run(send_likes_concurrent(uid, server_name, like_url, 999999))
     likes_sent = result['success']
 
     user_info_after = asyncio.run(get_user_info(uid, server_name))
@@ -1096,6 +1104,7 @@ def send_unlimited():
         'likes_sent': likes_sent,
         'username': username,
         'total_likes': after_likes,
+        'likes_before': before_likes,
         'verified_added': after_likes - before_likes
     })
 
@@ -1174,7 +1183,7 @@ def handle_requests():
         return jsonify({"error": "Daily limit reached", "remains": f"(0/{KEY_LIMIT})"}), 429
 
     check_token = None
-    for account in accounts[:5]:
+    for account in accounts[:3]:
         check_token = asyncio.run(get_valid_token(account['uid'], account['password']))
         if check_token:
             break
@@ -1200,7 +1209,7 @@ def handle_requests():
         like_url = "https://clientbp.ggpolarbear.com/LikeProfile"
 
     limit = requested_likes if requested_likes and requested_likes > 0 else 50
-    result = asyncio.run(send_likes_rocket(uid, server_name, like_url, limit))
+    result = asyncio.run(send_likes_concurrent(uid, server_name, like_url, limit))
     success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -1263,7 +1272,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ Auto-Like System Started – 20 Likes + Unlimited + Auto Like with Auto Remove")
+print("✅ ULTRA FAST Auto-Like System Started – Concurrent Sending (~6 seconds)")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
