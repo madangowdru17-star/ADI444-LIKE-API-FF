@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify, render_template_string
+from flask import Flask, request, jsonify, render_template_string, session, redirect, url_for
 import asyncio
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad
@@ -22,6 +22,7 @@ import pickle
 import threading
 
 app = Flask(__name__)
+app.secret_key = 'hex-cheats-secret-key-2024'
 
 TOKEN_CACHE = {}
 KEY_LIMIT = 500
@@ -57,6 +58,17 @@ REGION_URLS = {
     'RU': 'https://clientbp.ggpolarbear.com',
     'MENA': 'https://clientbp.ggpolarbear.com'
 }
+
+# Activity Logs
+activity_logs = []
+
+def add_activity_log(message, log_type="info"):
+    timestamp = datetime.now().strftime("%H:%M:%S")
+    entry = {'time': timestamp, 'type': log_type, 'message': message}
+    activity_logs.append(entry)
+    if len(activity_logs) > 100:
+        activity_logs.pop(0)
+    print(f"[{timestamp}] [{log_type.upper()}] {message}")
 
 def load_users():
     global auto_like_users, user_stats, like_history
@@ -176,6 +188,7 @@ def add_to_history(target_uid, likes_sent, before, after, username, server="IND"
     }
     like_history.append(entry)
     save_users()
+    add_activity_log(f"✅ {username} | Sent {likes_sent} likes | Before: {before} | After: {after} | Gained: {after - before}", "success")
 
 def get_next_reset_time():
     now = datetime.now()
@@ -475,7 +488,7 @@ def run_status_check():
     asyncio.run(check_all_accounts_status())
 
 async def auto_like_daily():
-    print("Auto-like scheduler started")
+    add_activity_log("🚀 Auto-like scheduler started", "info")
     while True:
         try:
             now = datetime.now()
@@ -484,14 +497,14 @@ async def auto_like_daily():
                 target_time += timedelta(days=1)
             wait_seconds = (target_time - now).total_seconds()
             if wait_seconds > 0:
-                print(f"Next auto-like at: {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST")
+                add_activity_log(f"⏰ Next auto-like at: {target_time.strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
                 await asyncio.sleep(wait_seconds)
             
-            print(f"Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST")
+            add_activity_log(f"🔄 Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
             
             users_to_remove = []
             for user_uid in auto_like_users:
-                print(f"Processing user: {user_uid}")
+                add_activity_log(f"📱 Processing user: {user_uid}", "info")
                 
                 user_info_before = await get_user_info(user_uid, "IND")
                 before_likes = user_info_before.get('likes', 0) if user_info_before else 0
@@ -512,15 +525,15 @@ async def auto_like_daily():
                     username = user_info_after.get('name', 'Unknown')
                     update_user_stats(user_uid, likes_sent, username, after_likes)
                     add_to_history(user_uid, likes_sent, before_likes, after_likes, username, "IND")
-                    print(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes}")
+                    add_activity_log(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes}", "success")
                     if result['stopped']:
-                        print(f"🛑 Verified limit {AUTO_LIKE_VERIFIED_LIMIT} reached! Stopped.")
+                        add_activity_log(f"🛑 Verified limit {AUTO_LIKE_VERIFIED_LIMIT} reached! Stopped.", "info")
                 else:
-                    print(f"⚠️ {user_uid} | Failed to get profile")
+                    add_activity_log(f"⚠️ {user_uid} | Failed to get profile", "error")
                 
                 if likes_sent > 0:
                     users_to_remove.append(user_uid)
-                    print(f"✅ Auto-removed: {user_uid}")
+                    add_activity_log(f"✅ Auto-removed: {user_uid}", "success")
                 
                 await asyncio.sleep(0.5)
             
@@ -529,10 +542,10 @@ async def auto_like_daily():
                     auto_like_users.remove(uid)
                     save_users()
             
-            print(f"Auto-like cycle complete. Removed {len(users_to_remove)} users.")
+            add_activity_log(f"✅ Auto-like cycle complete. Removed {len(users_to_remove)} users.", "success")
             
         except Exception as e:
-            print(f"Auto-like error: {e}")
+            add_activity_log(f"❌ Auto-like error: {str(e)}", "error")
             await asyncio.sleep(60)
 
 def start_auto_like():
@@ -542,11 +555,158 @@ def set_auto_time(hour, minute):
     global RESET_HOUR, RESET_MINUTE
     RESET_HOUR = hour
     RESET_MINUTE = minute
-    print(f"Auto-like time changed to {hour:02d}:{minute:02d} IST")
+    add_activity_log(f"⏰ Auto-like time changed to {hour:02d}:{minute:02d} IST", "info")
     return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
 
 # ============================================================
-# PREMIUM GAMING DASHBOARD – NEW COLOR PALETTE
+# LOGIN PAGE
+# ============================================================
+LOGIN_HTML = '''
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HEX CHEATS - Login</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #0D1117;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background-image: radial-gradient(circle at 20% 30%, rgba(0,229,255,0.05) 0%, transparent 50%),
+                              radial-gradient(circle at 80% 70%, rgba(0,230,118,0.05) 0%, transparent 50%);
+        }
+        .login-container {
+            background: rgba(22,27,34,0.9);
+            backdrop-filter: blur(20px);
+            border: 1px solid rgba(43,52,66,0.4);
+            border-radius: 24px;
+            padding: 50px 40px;
+            max-width: 420px;
+            width: 90%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+        }
+        .login-container .logo {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .login-container .logo h1 {
+            font-family: 'Orbitron', monospace;
+            font-size: 2em;
+            font-weight: 900;
+            background: linear-gradient(135deg, #00E5FF, #00E676);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 2px;
+        }
+        .login-container .logo p {
+            color: #A8B3CF;
+            font-size: 0.8em;
+            letter-spacing: 4px;
+            text-transform: uppercase;
+            margin-top: 4px;
+        }
+        .login-container .input-group {
+            margin-bottom: 16px;
+        }
+        .login-container .input-group label {
+            color: #A8B3CF;
+            font-size: 0.8em;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+            display: block;
+            margin-bottom: 6px;
+        }
+        .login-container .input-group input {
+            width: 100%;
+            padding: 12px 16px;
+            border-radius: 12px;
+            border: 1px solid rgba(43,52,66,0.4);
+            background: rgba(0,0,0,0.3);
+            color: #F8FAFC;
+            font-size: 1em;
+            font-family: 'Inter', sans-serif;
+            transition: 0.3s;
+        }
+        .login-container .input-group input:focus {
+            outline: none;
+            border-color: rgba(0,229,255,0.3);
+            box-shadow: 0 0 20px rgba(0,229,255,0.05);
+        }
+        .login-container .login-btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            background: linear-gradient(135deg, #00E5FF, #00E676);
+            color: #0D1117;
+            font-size: 1em;
+            font-weight: 700;
+            cursor: pointer;
+            transition: 0.3s;
+            font-family: 'Inter', sans-serif;
+            letter-spacing: 0.5px;
+            margin-top: 8px;
+        }
+        .login-container .login-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 0 30px rgba(0,229,255,0.2);
+        }
+        .login-container .error-msg {
+            color: #FF4D6D;
+            font-size: 0.85em;
+            text-align: center;
+            margin-top: 12px;
+            display: none;
+        }
+        .login-container .footer {
+            text-align: center;
+            margin-top: 20px;
+            color: #4a5a7a;
+            font-size: 0.7em;
+            letter-spacing: 1px;
+        }
+        .login-container .footer i { color: #00E5FF; }
+    </style>
+</head>
+<body>
+    <div class="login-container">
+        <div class="logo">
+            <h1>HEX CHEATS</h1>
+            <p>Like Bot System</p>
+        </div>
+        <form method="POST" action="/login">
+            <div class="input-group">
+                <label><i class="fas fa-user"></i> Username</label>
+                <input type="text" name="username" placeholder="Enter username" required />
+            </div>
+            <div class="input-group">
+                <label><i class="fas fa-lock"></i> Password</label>
+                <input type="password" name="password" placeholder="Enter password" required />
+            </div>
+            <button type="submit" class="login-btn"><i class="fas fa-sign-in-alt"></i> Login</button>
+        </form>
+        <div class="error-msg" id="login-error">Invalid username or password!</div>
+        <div class="footer"><i class="fas fa-shield-alt"></i> Secure Connection</div>
+    </div>
+    <script>
+        // Show error if login fails
+        if (window.location.search.includes('error=1')) {
+            document.getElementById('login-error').style.display = 'block';
+        }
+    </script>
+</body>
+</html>
+'''
+
+# ============================================================
+# PREMIUM DASHBOARD – FINAL VERSION
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -558,7 +718,6 @@ WEBSITE_HTML = '''
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        /* ===== RESET & BASE ===== */
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Inter', sans-serif;
@@ -570,13 +729,11 @@ WEBSITE_HTML = '''
                 radial-gradient(circle at 85% 80%, rgba(77,124,254,0.04) 0%, transparent 50%);
         }
         
-        /* ===== SCROLLBAR ===== */
         ::-webkit-scrollbar { width: 6px; }
         ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
         ::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.2); border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: rgba(0,229,255,0.35); }
         
-        /* ===== ANIMATIONS ===== */
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
         @keyframes neonPulse { 0%,100% { box-shadow: 0 0 15px rgba(0,229,255,0.05), 0 0 30px rgba(0,229,255,0.02); } 50% { box-shadow: 0 0 25px rgba(0,229,255,0.12), 0 0 50px rgba(0,229,255,0.04); } }
         @keyframes glowPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
@@ -584,7 +741,6 @@ WEBSITE_HTML = '''
         
         .fade-in { animation: fadeInUp 0.4s ease forwards; }
         
-        /* ===== MAIN CONTAINER ===== */
         .main {
             max-width: 1400px;
             margin: 0 auto;
@@ -592,10 +748,13 @@ WEBSITE_HTML = '''
             width: 100%;
         }
         
-        /* ===== TITLE ===== */
-        .title-section {
-            text-align: center;
-            padding: 18px 0 10px 0;
+        /* ===== HEADER ===== */
+        .header-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
             margin-bottom: 8px;
         }
         .title-section h1 {
@@ -617,21 +776,49 @@ WEBSITE_HTML = '''
             margin-top: 2px;
             font-weight: 400;
         }
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .server-status {
+            background: rgba(22,27,34,0.6);
+            padding: 6px 16px;
+            border-radius: 20px;
+            border: 1px solid rgba(43,52,66,0.3);
+            font-size: 0.75em;
+            color: #A8B3CF;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .server-status .server-name { color: #00E5FF; font-weight: 600; }
+        .server-status .accounts-count { color: #00E676; font-weight: 600; }
+        .logout-btn {
+            padding: 6px 16px;
+            border: 1px solid rgba(43,52,66,0.3);
+            border-radius: 12px;
+            background: rgba(255,255,255,0.03);
+            color: #A8B3CF;
+            cursor: pointer;
+            font-size: 0.75em;
+            font-weight: 600;
+            transition: 0.3s;
+            font-family: 'Inter', sans-serif;
+        }
+        .logout-btn:hover { background: rgba(255,77,109,0.1); color: #FF4D6D; border-color: rgba(255,77,109,0.2); }
         
-        /* ===== GLASS CARDS ===== */
         .glass {
             background: rgba(22,27,34,0.85);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(43,52,66,0.5);
+            border: 1px solid rgba(43,52,66,0.4);
             box-shadow: 0 4px 20px rgba(0,0,0,0.2);
             border-radius: 16px;
             transition: 0.3s;
         }
-        .glass:hover { 
-            border-color: rgba(0,229,255,0.15); 
-        }
+        .glass:hover { border-color: rgba(0,229,255,0.12); }
         
-        /* ===== STATUS ROW ===== */
         .status-row {
             display: flex;
             flex-wrap: wrap;
@@ -645,7 +832,7 @@ WEBSITE_HTML = '''
             padding: 6px 18px;
             border-radius: 20px;
             font-size: 0.82em;
-            border: 1px solid rgba(43,52,66,0.4);
+            border: 1px solid rgba(43,52,66,0.3);
             color: #A8B3CF;
             display: flex;
             align-items: center;
@@ -654,7 +841,7 @@ WEBSITE_HTML = '''
         .status-row .item i { color: #00E5FF; font-size: 0.9em; }
         .status-row .item span { color: #F8FAFC; font-weight: 500; }
         
-        /* ===== TOP NAV BUTTONS ===== */
+        /* ===== NAV BUTTONS ===== */
         .nav-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
@@ -663,7 +850,7 @@ WEBSITE_HTML = '''
         }
         .nav-btn {
             padding: 12px 14px;
-            border: 1px solid rgba(43,52,66,0.4);
+            border: 1px solid rgba(43,52,66,0.3);
             border-radius: 16px;
             cursor: pointer;
             font-weight: 600;
@@ -688,7 +875,7 @@ WEBSITE_HTML = '''
             box-shadow: 0 0 20px rgba(0,229,255,0.05);
         }
         .nav-btn.active-nav {
-            background: linear-gradient(135deg, rgba(0,229,255,0.12), rgba(0,230,118,0.08));
+            background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(0,230,118,0.10));
             color: #00E5FF;
             border-color: rgba(0,229,255,0.2);
             box-shadow: 0 0 30px rgba(0,229,255,0.06);
@@ -696,7 +883,7 @@ WEBSITE_HTML = '''
         }
         .nav-btn i { font-size: 0.9em; }
         
-        /* ===== STATS GRID ===== */
+        /* ===== STATS ===== */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -735,11 +922,7 @@ WEBSITE_HTML = '''
             letter-spacing: 1.2px;
             text-transform: uppercase;
         }
-        .stat-card .icon { 
-            font-size: 1.1em; 
-            margin-bottom: 4px;
-            opacity: 0.4;
-        }
+        .stat-card .icon { font-size: 1.1em; margin-bottom: 4px; opacity: 0.4; }
         .num-accounts { color: #4D7CFE; }
         .num-working { color: #00E676; }
         .num-timeout { color: #FF4D6D; }
@@ -775,7 +958,7 @@ WEBSITE_HTML = '''
         .input-group input, .input-group select {
             padding: 10px 16px;
             border-radius: 12px;
-            border: 1px solid rgba(43,52,66,0.4);
+            border: 1px solid rgba(43,52,66,0.3);
             background: rgba(0,0,0,0.25);
             color: #F8FAFC;
             font-size: 0.9em;
@@ -844,7 +1027,6 @@ WEBSITE_HTML = '''
         }
         .btn-ghost:hover { background: rgba(255,255,255,0.06); color: #F8FAFC; }
         
-        /* ===== USER LIST ===== */
         .user-list {
             display: flex;
             flex-wrap: wrap;
@@ -876,7 +1058,6 @@ WEBSITE_HTML = '''
             font-size: 1em;
         }
         
-        /* ===== TABLE ===== */
         .table-wrap { overflow-x: auto; }
         table {
             width: 100%;
@@ -931,10 +1112,8 @@ WEBSITE_HTML = '''
             border-radius: 50%;
             animation: glowPulse 1.5s infinite;
         }
-        
         .note { color: #A8B3CF; font-size: 0.8em; margin-top: 8px; }
         
-        /* ===== HISTORY ===== */
         .history-item {
             padding: 8px 0;
             border-bottom: 1px solid rgba(43,52,66,0.2);
@@ -950,7 +1129,30 @@ WEBSITE_HTML = '''
         .history-item .likes { color: #00E676; font-weight: 600; }
         .history-item .time { color: #A8B3CF; font-size: 0.75em; }
         
-        /* ===== RESULT MODAL ===== */
+        /* ===== LOGS ===== */
+        .logs-container {
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.8em;
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 12px 16px;
+            border: 1px solid rgba(43,52,66,0.15);
+        }
+        .log-entry {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(43,52,66,0.08);
+            color: #A8B3CF;
+            display: flex;
+            gap: 12px;
+        }
+        .log-entry .log-time { color: #00E5FF; min-width: 60px; }
+        .log-entry .log-success { color: #00E676; }
+        .log-entry .log-error { color: #FF4D6D; }
+        .log-entry .log-info { color: #FFC107; }
+        
+        /* ===== MODAL ===== */
         .result-modal {
             display: none;
             position: fixed;
@@ -1015,6 +1217,7 @@ WEBSITE_HTML = '''
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .nav-grid { grid-template-columns: repeat(4, 1fr); }
             .title-section h1 { font-size: 2em; }
+            .header-top { flex-direction: column; align-items: flex-start; }
         }
         @media (max-width: 768px) {
             .main { padding: 14px 16px; }
@@ -1030,6 +1233,7 @@ WEBSITE_HTML = '''
             .btn { font-size: 0.8em; padding: 8px 16px; min-height: 36px; }
             .result-box { padding: 20px; }
             .status-row .item { font-size: 0.7em; padding: 4px 12px; }
+            .server-status { font-size: 0.65em; padding: 4px 12px; }
         }
         @media (max-width: 480px) {
             .main { padding: 10px 12px; }
@@ -1045,12 +1249,21 @@ WEBSITE_HTML = '''
     </style>
 </head>
 <body>
-    <!-- ===== MAIN CONTENT ===== -->
     <div class="main">
-        <!-- Title Section -->
-        <div class="title-section">
-            <h1>HEX CHEATS</h1>
-            <div class="sub-title">Like Bot System</div>
+        <!-- Header -->
+        <div class="header-top">
+            <div class="title-section">
+                <h1>HEX CHEATS</h1>
+                <div class="sub-title">Like Bot System</div>
+            </div>
+            <div class="header-right">
+                <div class="server-status">
+                    <i class="fas fa-server"></i>
+                    Server: <span class="server-name" id="current-server">IND</span>
+                    | Accounts: <span class="accounts-count" id="server-accounts">0</span>
+                </div>
+                <a href="/logout"><button class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button></a>
+            </div>
         </div>
         
         <!-- Status Row -->
@@ -1060,7 +1273,7 @@ WEBSITE_HTML = '''
             <div class="item"><i class="fas fa-comment"></i> Message: <span id="autoRunMessage">-</span></div>
         </div>
         
-        <!-- Top Navigation Buttons -->
+        <!-- Navigation -->
         <div class="nav-grid">
             <button class="nav-btn active-nav" onclick="showSection('dashboard')"><i class="fas fa-home"></i> Dashboard</button>
             <button class="nav-btn" onclick="showSection('likes20')"><i class="fas fa-crosshairs"></i> 20 Likes</button>
@@ -1074,7 +1287,7 @@ WEBSITE_HTML = '''
             <button class="nav-btn" onclick="showSection('settings')"><i class="fas fa-cog"></i> Settings</button>
         </div>
         
-        <!-- ===== DASHBOARD ===== -->
+        <!-- Dashboard -->
         <div id="section-dashboard" class="section active">
             <div class="stats-grid">
                 <div class="stat-card"><div class="icon" style="color:#4D7CFE;"><i class="fas fa-users"></i></div><div class="num num-accounts" id="total-accounts">0</div><div class="lbl">Accounts</div></div>
@@ -1086,13 +1299,13 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== 20 LIKES ===== -->
+        <!-- 20 Likes -->
         <div id="section-likes20" class="section">
             <div class="panel">
                 <h2><i class="fas fa-crosshairs"></i> 20 Likes</h2>
                 <div class="input-group">
                     <input type="number" id="target-uid-20" placeholder="Enter Free Fire UID" />
-                    <select id="server-20">
+                    <select id="server-20" onchange="updateServerStatus(this.value)">
                         <option value="IND">India</option>
                         <option value="BD">Bangladesh</option>
                         <option value="MENA">MENA</option>
@@ -1108,13 +1321,13 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== UNLIMITED ===== -->
+        <!-- Unlimited -->
         <div id="section-unlimited" class="section">
             <div class="panel">
                 <h2><i class="fas fa-infinity"></i> Unlimited Likes</h2>
                 <div class="input-group">
                     <input type="number" id="target-uid-unlimited" placeholder="Enter Free Fire UID" />
-                    <select id="server-unlimited">
+                    <select id="server-unlimited" onchange="updateServerStatus(this.value)">
                         <option value="IND">India</option>
                         <option value="BD">Bangladesh</option>
                         <option value="MENA">MENA</option>
@@ -1130,7 +1343,7 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== AUTO LIKE ===== -->
+        <!-- Auto Like -->
         <div id="section-auto" class="section">
             <div class="panel">
                 <h2><i class="fas fa-clock"></i> Auto Like</h2>
@@ -1146,13 +1359,13 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== VERIFY ===== -->
+        <!-- Verify -->
         <div id="section-verify" class="section">
             <div class="panel">
                 <h2><i class="fas fa-check-double"></i> Verify Likes</h2>
                 <div class="input-group">
                     <input type="number" id="target-uid-verify" placeholder="Enter Free Fire UID" />
-                    <select id="server-verify">
+                    <select id="server-verify" onchange="updateServerStatus(this.value)">
                         <option value="IND">India</option>
                         <option value="BD">Bangladesh</option>
                         <option value="MENA">MENA</option>
@@ -1168,7 +1381,7 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== HISTORY ===== -->
+        <!-- History -->
         <div id="section-history" class="section">
             <div class="panel">
                 <h2><i class="fas fa-history"></i> Like History</h2>
@@ -1176,7 +1389,7 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== ACCOUNTS ===== -->
+        <!-- Accounts -->
         <div id="section-accounts" class="section">
             <div class="section-title"><i class="fas fa-users"></i> Account Status <span class="live-dot"></span></div>
             <div class="glass" style="padding:0; overflow:hidden;">
@@ -1187,7 +1400,7 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== STATISTICS ===== -->
+        <!-- Stats -->
         <div id="section-stats" class="section">
             <div class="panel">
                 <h2><i class="fas fa-chart-bar"></i> Statistics</h2>
@@ -1195,15 +1408,17 @@ WEBSITE_HTML = '''
             </div>
         </div>
         
-        <!-- ===== LOGS ===== -->
+        <!-- Logs -->
         <div id="section-logs" class="section">
             <div class="panel">
                 <h2><i class="fas fa-terminal"></i> Activity Logs</h2>
-                <div id="logs-content" style="font-family: 'Courier New', monospace; font-size:0.8em; max-height:300px; overflow-y:auto;"></div>
+                <div class="logs-container" id="logs-container">
+                    <div class="log-entry"><span class="log-time">[--:--:--]</span> <span class="log-info">System ready...</span></div>
+                </div>
             </div>
         </div>
         
-        <!-- ===== SETTINGS ===== -->
+        <!-- Settings -->
         <div id="section-settings" class="section">
             <div class="panel">
                 <h2><i class="fas fa-cog"></i> Settings</h2>
@@ -1220,7 +1435,7 @@ WEBSITE_HTML = '''
         </div>
     </div>
     
-    <!-- ===== RESULT MODAL ===== -->
+    <!-- Result Modal -->
     <div class="result-modal" id="resultModal">
         <div class="result-box">
             <h2><i class="fas fa-check-circle"></i> Like Result</h2>
@@ -1240,6 +1455,15 @@ WEBSITE_HTML = '''
         // ============================================
         // UI FUNCTIONS
         // ============================================
+        let currentServer = 'IND';
+        
+        function updateServerStatus(server) {
+            currentServer = server;
+            document.getElementById('current-server').textContent = server;
+            // Update accounts count from data
+            loadData();
+        }
+        
         function showSection(id) {
             document.querySelectorAll('.section').forEach(el => el.classList.remove('active'));
             document.getElementById('section-' + id).classList.add('active');
@@ -1259,7 +1483,7 @@ WEBSITE_HTML = '''
         // DATA LOADING
         // ============================================
         function loadData() {
-            fetch('/api/dashboard-data')
+            fetch('/api/dashboard-data?server=' + currentServer)
                 .then(res => res.json())
                 .then(data => {
                     if (data.error) return;
@@ -1269,6 +1493,7 @@ WEBSITE_HTML = '''
                     document.getElementById('total-likes').textContent = data.total_likes || 0;
                     document.getElementById('targets-liked').textContent = data.targets_liked || 0;
                     document.getElementById('auto-users').textContent = data.auto_users || 0;
+                    document.getElementById('server-accounts').textContent = data.total_accounts || 0;
                     document.getElementById('lastAutoRun').textContent = data.last_auto_run ? formatTime(data.last_auto_run) : 'Never';
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
@@ -1356,15 +1581,13 @@ WEBSITE_HTML = '''
                     let html = '';
                     if (data.logs && data.logs.length > 0) {
                         data.logs.forEach(log => {
-                            html += `<div style="padding:4px 0;border-bottom:1px solid rgba(43,52,66,0.15);color:#A8B3CF;">
-                                <span style="color:#00E5FF;">[${log.time}]</span> 
-                                <span style="color:${log.type === 'success' ? '#00E676' : log.type === 'error' ? '#FF4D6D' : '#FFC107'}">${log.message}</span>
-                            </div>`;
+                            const colorClass = log.type === 'success' ? 'log-success' : log.type === 'error' ? 'log-error' : 'log-info';
+                            html += `<div class="log-entry"><span class="log-time">[${log.time}]</span> <span class="${colorClass}">${log.message}</span></div>`;
                         });
                     } else {
-                        html = '<div class="note">No logs yet</div>';
+                        html = '<div class="log-entry"><span class="log-time">[--:--:--]</span> <span class="log-info">No logs yet</span></div>';
                     }
-                    document.getElementById('logs-content').innerHTML = html;
+                    document.getElementById('logs-container').innerHTML = html;
                 });
         }
         
@@ -1513,23 +1736,51 @@ WEBSITE_HTML = '''
         // INIT
         // ============================================
         loadData();
-        setInterval(loadData, 3000);
-        setInterval(loadHistory, 5000);
+        setInterval(loadData, 5000);
+        setInterval(loadLogs, 5000);
+        setInterval(loadHistory, 10000);
     </script>
 </body>
 </html>
 '''
 
+# ============================================================
+# ROUTES
+# ============================================================
 @app.route('/')
-def dashboard():
-    return render_template_string(WEBSITE_HTML)
+def index():
+    if session.get('logged_in'):
+        return render_template_string(WEBSITE_HTML)
+    return render_template_string(LOGIN_HTML)
+
+@app.route('/login', methods=['POST'])
+def login():
+    username = request.form.get('username')
+    password = request.form.get('password')
+    
+    if username == 'HexMods' and password == 'ADI444':
+        session['logged_in'] = True
+        add_activity_log("✅ User HexMods logged in", "success")
+        return redirect('/')
+    
+    return redirect('/?error=1')
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    add_activity_log("👋 User logged out", "info")
+    return redirect('/')
 
 @app.route('/api/dashboard-data')
 def dashboard_data():
-    server = 'IND'
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
+    server = request.args.get('server', 'IND')
     accounts = load_accounts(server)
     if not accounts:
-        return jsonify({'error': 'No accounts found'})
+        return jsonify({'error': f'No accounts found for server {server}'})
+    
     total = len(accounts)
     working_count = 0
     timeout_count = 0
@@ -1551,6 +1802,7 @@ def dashboard_data():
     total_likes = sum(len(v) for v in liked_cache.values())
     targets_liked = len(liked_cache)
     next_reset = get_next_reset_time().strftime('%Y-%m-%d %H:%M:%S IST')
+    
     return jsonify({
         'total_accounts': total,
         'working_count': working_count,
@@ -1570,10 +1822,15 @@ def dashboard_data():
 
 @app.route('/api/history')
 def get_history():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
     return jsonify({'history': like_history[-50:]})
 
 @app.route('/api/stats')
 def get_stats():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     total_likes = sum(len(v) for v in liked_cache.values())
     total_targets = len(liked_cache)
     working = sum(1 for v in account_status.values() if v.get('status') == 'working')
@@ -1587,20 +1844,15 @@ def get_stats():
 
 @app.route('/api/logs')
 def get_logs():
-    logs = []
-    try:
-        with open('logs.txt', 'r') as f:
-            lines = f.readlines()[-50:]
-            for line in lines:
-                parts = line.strip().split('|')
-                if len(parts) == 3:
-                    logs.append({'time': parts[0], 'type': parts[1], 'message': parts[2]})
-    except:
-        pass
-    return jsonify({'logs': logs})
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    return jsonify({'logs': activity_logs[-50:]})
 
 @app.route('/verify-likes', methods=['POST'])
 def verify_likes():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     uid = data.get('uid', '').strip()
     server_name = data.get('server_name', 'IND').upper()
@@ -1620,6 +1872,9 @@ def verify_likes():
 
 @app.route('/send-likes', methods=['POST'])
 def send_likes():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     uid = data.get('uid', '').strip()
     server_name = data.get('server_name', 'IND').upper()
@@ -1663,6 +1918,7 @@ def send_likes():
     if likes_sent > 0 and uid not in auto_like_users:
         auto_like_users.append(uid)
         save_users()
+        add_activity_log(f"📌 Added {uid} to auto-queue (from manual like)", "info")
     
     return jsonify({
         'success': likes_sent > 0,
@@ -1678,6 +1934,9 @@ def send_likes():
 
 @app.route('/add-auto-user', methods=['POST'])
 def add_auto_user():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     uid = data.get('uid', '').strip()
     limit = data.get('limit', 220)
@@ -1690,10 +1949,14 @@ def add_auto_user():
     save_users()
     global AUTO_LIKE_VERIFIED_LIMIT
     AUTO_LIKE_VERIFIED_LIMIT = limit
+    add_activity_log(f"📌 Added {uid} to auto-queue (limit: {limit})", "info")
     return jsonify({'success': True, 'message': f'Added {uid} with verified limit {limit}'})
 
 @app.route('/delete-user', methods=['POST'])
 def delete_user():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     uid = data.get('uid', '').strip()
     if uid in auto_like_users:
@@ -1701,18 +1964,26 @@ def delete_user():
         if uid in user_stats:
             del user_stats[uid]
         save_users()
+        add_activity_log(f"🗑️ Removed {uid} from auto-queue", "info")
         return jsonify({'success': True, 'message': f'Removed {uid}'})
     return jsonify({'success': False, 'message': 'UID not found'})
 
 @app.route('/delete-all-users', methods=['POST'])
 def delete_all_users():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
     auto_like_users.clear()
     user_stats.clear()
     save_users()
+    add_activity_log("🗑️ Cleared entire auto-queue", "info")
     return jsonify({'success': True, 'message': 'All users deleted'})
 
 @app.route('/set-auto-time', methods=['POST'])
 def set_auto_time():
+    if not session.get('logged_in'):
+        return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+    
     data = request.get_json()
     hour = data.get('hour', 4)
     minute = data.get('minute', 2)
@@ -1825,6 +2096,9 @@ def reset_cache():
 def health():
     return jsonify({"status": "healthy", "accounts": len(load_accounts("IND"))})
 
+# ============================================================
+# STARTUP
+# ============================================================
 load_liked_data()
 load_account_status()
 load_users()
@@ -1837,8 +2111,14 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ HEX CHEATS – Premium Gaming Dashboard Started (New Color Palette)")
+add_activity_log("🚀 HEX CHEATS System Started", "info")
+add_activity_log(f"📁 Accounts: {len(load_accounts('IND'))} (IND)", "info")
+add_activity_log(f"📌 Auto-queue: {len(auto_like_users)} users", "info")
+add_activity_log("⏰ Auto-reset at 4:02 AM IST", "info")
+
+print("✅ HEX CHEATS – Final Version Started")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
+print("🔐 Login: HexMods / ADI444")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
