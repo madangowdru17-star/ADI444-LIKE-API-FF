@@ -696,7 +696,6 @@ LOGIN_HTML = '''
         <div class="footer"><i class="fas fa-shield-alt"></i> Secure Connection</div>
     </div>
     <script>
-        // Show error if login fails
         if (window.location.search.includes('error=1')) {
             document.getElementById('login-error').style.display = 'block';
         }
@@ -706,7 +705,7 @@ LOGIN_HTML = '''
 '''
 
 # ============================================================
-# PREMIUM DASHBOARD – FINAL VERSION
+# PREMIUM DASHBOARD – FINAL VERSION (TITLE CENTERED)
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -748,39 +747,39 @@ WEBSITE_HTML = '''
             width: 100%;
         }
         
-        /* ===== HEADER ===== */
-        .header-top {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
+        /* ===== TITLE CENTERED ===== */
+        .title-section {
+            text-align: center;
+            padding: 12px 0 8px 0;
             margin-bottom: 8px;
         }
         .title-section h1 {
             font-family: 'Orbitron', monospace;
-            font-size: 2.4em;
+            font-size: 2.6em;
             font-weight: 900;
             background: linear-gradient(135deg, #00E5FF, #00E676);
             -webkit-background-clip: text;
             -webkit-text-fill-color: transparent;
-            letter-spacing: 3px;
+            letter-spacing: 4px;
             animation: titleGlow 3s ease-in-out infinite;
         }
         .title-section .sub-title {
             font-family: 'Inter', sans-serif;
             font-size: 0.85em;
             color: #A8B3CF;
-            letter-spacing: 6px;
+            letter-spacing: 8px;
             text-transform: uppercase;
             margin-top: 2px;
             font-weight: 400;
         }
-        .header-right {
+        
+        /* ===== HEADER TOP ===== */
+        .header-top {
             display: flex;
+            justify-content: flex-end;
             align-items: center;
             gap: 12px;
-            flex-wrap: wrap;
+            margin-bottom: 8px;
         }
         .server-status {
             background: rgba(22,27,34,0.6);
@@ -1217,7 +1216,6 @@ WEBSITE_HTML = '''
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .nav-grid { grid-template-columns: repeat(4, 1fr); }
             .title-section h1 { font-size: 2em; }
-            .header-top { flex-direction: column; align-items: flex-start; }
         }
         @media (max-width: 768px) {
             .main { padding: 14px 16px; }
@@ -1234,6 +1232,7 @@ WEBSITE_HTML = '''
             .result-box { padding: 20px; }
             .status-row .item { font-size: 0.7em; padding: 4px 12px; }
             .server-status { font-size: 0.65em; padding: 4px 12px; }
+            .header-top { justify-content: center; }
         }
         @media (max-width: 480px) {
             .main { padding: 10px 12px; }
@@ -1250,20 +1249,20 @@ WEBSITE_HTML = '''
 </head>
 <body>
     <div class="main">
-        <!-- Header -->
+        <!-- Title Centered -->
+        <div class="title-section">
+            <h1>HEX CHEATS</h1>
+            <div class="sub-title">Like Bot System</div>
+        </div>
+        
+        <!-- Header Top (Server Status + Logout) -->
         <div class="header-top">
-            <div class="title-section">
-                <h1>HEX CHEATS</h1>
-                <div class="sub-title">Like Bot System</div>
+            <div class="server-status">
+                <i class="fas fa-server"></i>
+                Server: <span class="server-name" id="current-server">IND</span>
+                | Accounts: <span class="accounts-count" id="server-accounts">0</span>
             </div>
-            <div class="header-right">
-                <div class="server-status">
-                    <i class="fas fa-server"></i>
-                    Server: <span class="server-name" id="current-server">IND</span>
-                    | Accounts: <span class="accounts-count" id="server-accounts">0</span>
-                </div>
-                <a href="/logout"><button class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button></a>
-            </div>
+            <a href="/logout"><button class="logout-btn"><i class="fas fa-sign-out-alt"></i> Logout</button></a>
         </div>
         
         <!-- Status Row -->
@@ -1460,7 +1459,6 @@ WEBSITE_HTML = '''
         function updateServerStatus(server) {
             currentServer = server;
             document.getElementById('current-server').textContent = server;
-            // Update accounts count from data
             loadData();
         }
         
@@ -1915,10 +1913,8 @@ def send_likes():
         after_likes = before_likes
         username = before_name
     
-    if likes_sent > 0 and uid not in auto_like_users:
-        auto_like_users.append(uid)
-        save_users()
-        add_activity_log(f"📌 Added {uid} to auto-queue (from manual like)", "info")
+    # FIX: Manual likes do NOT auto-add to queue
+    # Only daily auto-like adds to queue
     
     return jsonify({
         'success': likes_sent > 0,
