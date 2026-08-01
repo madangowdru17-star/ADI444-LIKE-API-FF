@@ -43,10 +43,10 @@ RESET_HOUR = 4
 RESET_MINUTE = 2
 RESET_SECOND = 0
 AUTO_LIKE_LIMIT = 492
+AUTO_LIKE_VERIFIED_LIMIT = 220  # Stop after this many verified likes
 
-RATE_LIMIT_DELAYS = [0.05, 0.08, 0.1, 0.12, 0.15]
+RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1]
 
-# Region URLs
 REGION_URLS = {
     'IND': 'https://client.ind.freefiremobile.com',
     'BR': 'https://client.us.freefiremobile.com',
@@ -243,14 +243,13 @@ def load_accounts(server_name):
         return []
 
 async def get_user_info(target_uid, server_name="IND"):
-    """Get complete user profile info with proper error handling"""
     try:
         accounts = load_accounts(server_name)
         if not accounts:
             return None
         
         check_token = None
-        for account in accounts[:5]:
+        for account in accounts[:3]:
             token = await get_valid_token(account['uid'], account['password'])
             if token:
                 check_token = token
@@ -269,17 +268,12 @@ async def get_user_info(target_uid, server_name="IND"):
                 return {
                     'uid': account_info.get('UID', target_uid),
                     'name': account_info.get('PlayerNickname', 'Unknown'),
-                    'likes': int(account_info.get('Likes', 0)),
-                    'avatar': account_info.get('Avatar', ''),
-                    'level': account_info.get('PlayerLevel', 0),
-                    'region': account_info.get('Region', server_name)
+                    'likes': int(account_info.get('Likes', 0))
                 }
-            except Exception as e:
-                print(f"Parse error: {e}")
+            except:
                 return None
         return None
-    except Exception as e:
-        print(f"User info error: {e}")
+    except:
         return None
 
 async def generate_jwt_token(uid, password):
@@ -332,7 +326,7 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
+async def send_like_fast(encrypted_uid, token, url, account_uid):
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -349,24 +343,21 @@ async def send_like_ultra_fast(encrypted_uid, token, url, account_uid):
                         account_status[account_uid]['status'] = 'working'
                         account_status[account_uid]['last_check'] = datetime.now().isoformat()
                         save_account_status()
-                    return True, "success"
-                elif "LIMIT" in await response.text():
-                    if account_uid in account_status:
-                        account_status[account_uid]['status'] = 'timeout'
-                        account_status[account_uid]['reset_time'] = get_next_reset_time().isoformat()
-                        save_account_status()
-                    return False, "limit_reached"
-                else:
-                    return False, "failed"
-    except Exception as e:
-        return False, f"error: {str(e)}"
+                    return True
+                return False
+    except:
+        return False
 
-async def send_likes_concurrent(target_uid, server_name, url, limit):
-    """Send likes concurrently with detailed failure tracking"""
+async def send_likes_with_verified_limit(target_uid, server_name, url, max_likes, verified_limit=0):
+    """
+    Send likes concurrently until verified_limit is reached.
+    If verified_limit = 0, send all available (max_likes).
+    """
     accounts = load_accounts(server_name)
     if not accounts:
-        return {'success': 0, 'failed': 0, 'total': 0, 'errors': []}
+        return {'success': 0, 'failed': 0, 'total': 0, 'stopped': False}
     
+    # Get fresh accounts (not liked in last 24hrs)
     fresh_accounts = []
     skipped = 0
     for acc in accounts:
@@ -376,9 +367,14 @@ async def send_likes_concurrent(target_uid, server_name, url, limit):
             fresh_accounts.append(acc)
     
     if not fresh_accounts:
-        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped, 'errors': ['No fresh accounts available']}
+        return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped, 'stopped': True}
     
-    accounts_to_use = fresh_accounts[:min(limit, len(fresh_accounts))]
+    # Determine how many accounts to use
+    if verified_limit > 0:
+        # Send in batches until verified limit reached
+        accounts_to_use = fresh_accounts[:min(max_likes, len(fresh_accounts))]
+    else:
+        accounts_to_use = fresh_accounts[:min(max_likes, len(fresh_accounts))]
     
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
@@ -389,31 +385,28 @@ async def send_likes_concurrent(target_uid, server_name, url, limit):
         token_tasks.append(get_valid_token(acc['uid'], acc['password']))
     tokens = await asyncio.gather(*token_tasks, return_exceptions=True)
     
-    # Send likes
+    # Send likes in batch
     like_tasks = []
-    errors = []
     for i, acc in enumerate(accounts_to_use):
         if isinstance(tokens[i], str) and tokens[i]:
-            like_tasks.append(send_like_ultra_fast(encrypted_uid, tokens[i], url, acc['uid']))
+            like_tasks.append(send_like_fast(encrypted_uid, tokens[i], url, acc['uid']))
         else:
-            errors.append(f"Token failed for {acc['uid']}")
-            like_tasks.append(asyncio.sleep(0, result=(False, "token_failed")))
+            like_tasks.append(asyncio.sleep(0, result=False))
     
     results = await asyncio.gather(*like_tasks, return_exceptions=True)
     
     successful = 0
     failed = 0
     for r in results:
-        if isinstance(r, tuple):
-            success, msg = r
-            if success:
-                successful += 1
-            else:
-                failed += 1
-                if msg and msg != "token_failed":
-                    errors.append(msg)
+        if isinstance(r, bool) and r:
+            successful += 1
         else:
             failed += 1
+    
+    # If verified_limit is set and we reached it, stop
+    stopped = False
+    if verified_limit > 0 and successful >= verified_limit:
+        stopped = True
     
     # Get user info after for verification
     user_info = None
@@ -434,7 +427,7 @@ async def send_likes_concurrent(target_uid, server_name, url, limit):
         'total': len(accounts),
         'accounts_used': len(accounts_to_use),
         'skipped': skipped,
-        'errors': errors[:10],
+        'stopped': stopped,
         'user_info': user_info
     }
 
@@ -467,8 +460,7 @@ def get_player_info(encrypted_uid, server_name, token):
     try:
         response = requests.post(url, data=edata, headers=headers, verify=False, timeout=10)
         return decode_protobuf(response.content)
-    except Exception as e:
-        print(f"Player info error: {e}")
+    except:
         return None
 
 async def check_all_accounts_status():
@@ -480,7 +472,7 @@ async def check_all_accounts_status():
                 protobuf_message = create_protobuf_message("3997461446", "IND")
                 encrypted_uid = encrypt_message(protobuf_message)
                 url = "https://client.ind.freefiremobile.com/LikeProfile"
-                success, _ = await send_like_ultra_fast(encrypted_uid, token, url, acc['uid'])
+                success = await send_like_fast(encrypted_uid, token, url, acc['uid'])
                 if success:
                     account_status[acc['uid']] = {'status': 'working', 'last_check': datetime.now().isoformat()}
                 else:
@@ -519,11 +511,13 @@ async def auto_like_daily():
                 before_likes = user_info_before.get('likes', 0) if user_info_before else 0
                 before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
                 
-                result = await send_likes_concurrent(
+                # Send likes with verified limit - stops after verified_limit reached
+                result = await send_likes_with_verified_limit(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
-                    AUTO_LIKE_LIMIT
+                    AUTO_LIKE_LIMIT,
+                    AUTO_LIKE_VERIFIED_LIMIT
                 )
                 likes_sent = result['success']
                 
@@ -533,7 +527,9 @@ async def auto_like_daily():
                     username = user_info_after.get('name', 'Unknown')
                     update_user_stats(user_uid, likes_sent, username, after_likes)
                     add_to_history(user_uid, likes_sent, before_likes, after_likes, username, "IND")
-                    print(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes} | Failed: {result['failed']}")
+                    print(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes}")
+                    if result['stopped']:
+                        print(f"🛑 Verified limit {AUTO_LIKE_VERIFIED_LIMIT} reached! Stopped.")
                 else:
                     print(f"⚠️ {user_uid} | Failed to get profile")
                 
@@ -564,7 +560,7 @@ def set_auto_time(hour, minute):
     print(f"Auto-like time changed to {hour:02d}:{minute:02d} IST")
     return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
 
-# [WEBSITE_HTML - Same as previous, no changes needed]
+# [WEBSITE_HTML - Full dashboard with all features]
 WEBSITE_HTML = '''
 <!DOCTYPE html>
 <html lang="en">
@@ -615,7 +611,6 @@ WEBSITE_HTML = '''
         .input-group { display: flex; flex-wrap: wrap; gap: 10px; }
         .input-group input { flex: 1 1 200px; padding: 12px 15px; border-radius: 8px; border: 1px solid rgba(0,255,255,0.15); background: rgba(0,0,0,0.4); color: #fff; font-size: 1em; min-width: 150px; }
         .input-group input:focus { outline: none; border-color: #00ffff; }
-        .btn-group { display: flex; flex-wrap: wrap; gap: 6px; }
         .table-wrap { overflow-x: auto; }
         table { width: 100%; border-collapse: collapse; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; margin-top: 12px; font-size: 0.9em; }
         th { background: rgba(0,255,255,0.05); padding: 12px 15px; text-align: left; font-weight: 600; color: #8899bb; border-bottom: 1px solid rgba(0,255,255,0.05); }
@@ -726,9 +721,9 @@ WEBSITE_HTML = '''
                             <option value="NA">NA</option>
                             <option value="RU">Russia</option>
                         </select>
-                        <button class="btn btn-primary" onclick="send20Likes()"><i class="fas fa-arrow-right"></i> Send 20 Likes</button>
+                        <button class="btn btn-primary" onclick="sendLikes(20)"><i class="fas fa-arrow-right"></i> Send 20 Likes</button>
                     </div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Sends exactly 20 verified likes with full profile info.</div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Sends exactly 20 verified likes, stops automatically.</div>
                 </div>
             </div>
             
@@ -747,24 +742,24 @@ WEBSITE_HTML = '''
                             <option value="NA">NA</option>
                             <option value="RU">Russia</option>
                         </select>
-                        <button class="btn btn-rocket" onclick="sendUnlimited()"><i class="fas fa-rocket"></i> Send All Likes</button>
+                        <button class="btn btn-rocket" onclick="sendLikes(999999)"><i class="fas fa-rocket"></i> Send All Likes</button>
                     </div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes. Shows full profile verification.</div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Sends all available likes, stops after verification.</div>
                 </div>
             </div>
             
             <div id="section-auto" class="section">
                 <div class="panel glass">
                     <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like with custom limit. All accounts concurrently.</p>
+                    <p style="color:#8899bb; margin-bottom:15px;">Daily auto-like. All accounts send at same time. Stops after verified limit.</p>
                     <div class="input-group">
                         <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
-                        <input type="number" id="auto-limit" placeholder="Limit" value="492" style="width:120px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
+                        <input type="number" id="auto-limit" placeholder="Verified Limit" value="220" style="width:140px; padding:12px 15px; border-radius:8px; border:1px solid rgba(0,255,255,0.15); background:rgba(0,0,0,0.4); color:#fff; font-size:1em;" />
                         <button class="btn btn-warning" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add</button>
                         <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear</button>
                     </div>
                     <div class="user-list" id="auto-user-list"></div>
-                    <div class="note"><i class="fas fa-info-circle"></i> Users auto-remove after successful like.</div>
+                    <div class="note"><i class="fas fa-info-circle"></i> Users auto-remove after successful like. Stops when verified limit reached.</div>
                 </div>
             </div>
             
@@ -812,7 +807,6 @@ WEBSITE_HTML = '''
                 <div class="row"><span class="label">Likes After</span><span class="value" id="res-after">0</span></div>
                 <div class="row"><span class="label">Verified Added</span><span class="value" id="res-added">0</span></div>
                 <div class="row"><span class="label">Failed</span><span class="value" id="res-failed" style="color:#ff0044;">0</span></div>
-                <div class="row"><span class="label">Server</span><span class="value" id="res-server">IND</span></div>
             </div>
             <button class="close-btn" onclick="closeResult()"><i class="fas fa-times"></i> Close</button>
         </div>
@@ -900,64 +894,51 @@ WEBSITE_HTML = '''
             document.getElementById('res-after').textContent = data.total_likes || 0;
             document.getElementById('res-added').textContent = data.verified_added || 0;
             document.getElementById('res-failed').textContent = data.failed || 0;
-            document.getElementById('res-server').textContent = data.server || 'IND';
             document.getElementById('resultModal').classList.add('active');
         }
         
         function closeResult() { document.getElementById('resultModal').classList.remove('active'); }
         
-        function getServer(inputId) {
-            const serverMap = {'20': 'server-20', 'unlimited': 'server-unlimited'};
-            const id = inputId.includes('20') ? '20' : 'unlimited';
-            return document.getElementById(serverMap[id]).value;
+        function getServer() {
+            // Determine which server selector to use based on active section
+            const activeSection = document.querySelector('.section.active');
+            if (activeSection) {
+                const id = activeSection.id;
+                if (id === 'section-likes20') return document.getElementById('server-20').value;
+                if (id === 'section-unlimited') return document.getElementById('server-unlimited').value;
+            }
+            return 'IND';
         }
         
-        function send20Likes() {
-            const uid = document.getElementById('target-uid-20').value.trim();
-            const server = document.getElementById('server-20').value;
+        function getUid() {
+            const activeSection = document.querySelector('.section.active');
+            if (activeSection) {
+                const id = activeSection.id;
+                if (id === 'section-likes20') return document.getElementById('target-uid-20').value.trim();
+                if (id === 'section-unlimited') return document.getElementById('target-uid-unlimited').value.trim();
+            }
+            return '';
+        }
+        
+        function sendLikes(count) {
+            const uid = getUid();
+            const server = getServer();
             if (!uid) { alert('Enter a UID'); return; }
-            if (!confirm(`Send 20 likes to ${uid} on ${server}?`)) return;
+            if (!confirm(`Send ${count === 999999 ? 'unlimited' : count} likes to ${uid} on ${server}?`)) return;
             
-            const btn = document.querySelector('#section-likes20 .btn-primary');
+            const btns = document.querySelectorAll('.btn-primary, .btn-rocket');
+            const btn = btns[0];
             btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
             btn.disabled = true;
             
             fetch('/send-likes', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, server_name: server, key: 'JMLB', count: 20 })
+                body: JSON.stringify({ uid, server_name: server, key: 'JMLB', count: count })
             })
             .then(res => res.json())
             .then(data => {
-                btn.innerHTML = '<i class="fas fa-arrow-right"></i> Send 20 Likes';
-                btn.disabled = false;
-                if (data.success) {
-                    showResult(data);
-                    loadData();
-                } else {
-                    alert('Error: ' + (data.error || 'Unknown error'));
-                }
-            });
-        }
-        
-        function sendUnlimited() {
-            const uid = document.getElementById('target-uid-unlimited').value.trim();
-            const server = document.getElementById('server-unlimited').value;
-            if (!uid) { alert('Enter a UID'); return; }
-            if (!confirm(`Send unlimited likes to ${uid} on ${server}?`)) return;
-            
-            const btn = document.querySelector('.btn-rocket');
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sending...';
-            btn.disabled = true;
-            
-            fetch('/send-likes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, server_name: server, key: 'JMLB', count: 999999 })
-            })
-            .then(res => res.json())
-            .then(data => {
-                btn.innerHTML = '<i class="fas fa-rocket"></i> Send All Likes';
+                btn.innerHTML = count === 999999 ? '<i class="fas fa-rocket"></i> Send All Likes' : '<i class="fas fa-arrow-right"></i> Send 20 Likes';
                 btn.disabled = false;
                 if (data.success) {
                     showResult(data);
@@ -970,7 +951,7 @@ WEBSITE_HTML = '''
         
         function addAutoUser() {
             const uid = document.getElementById('target-uid-auto').value.trim();
-            const limit = parseInt(document.getElementById('auto-limit').value) || 492;
+            const limit = parseInt(document.getElementById('auto-limit').value) || 220;
             if (!uid) { alert('Enter a UID'); return; }
             fetch('/add-auto-user', {
                 method: 'POST',
@@ -1101,11 +1082,16 @@ def send_likes():
         before_likes = 0
         before_name = 'Unknown'
     
-    # Send likes
+    # Send likes - uses verified limit if count is small (20) or unlimited if count is large
     base_url = REGION_URLS.get(server_name, 'https://clientbp.ggpolarbear.com')
     like_url = f"{base_url}/LikeProfile"
     
-    result = asyncio.run(send_likes_concurrent(uid, server_name, like_url, count))
+    # For 20 likes, use verified limit to stop at exactly 20
+    if count == 20:
+        result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, 20, 20))
+    else:
+        result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, 999999, 0))
+    
     likes_sent = result['success']
     
     # Get user info AFTER
@@ -1134,14 +1120,14 @@ def send_likes():
         'verified_added': after_likes - before_likes,
         'failed': result.get('failed', 0),
         'server': server_name,
-        'errors': result.get('errors', [])
+        'stopped': result.get('stopped', False)
     })
 
 @app.route('/add-auto-user', methods=['POST'])
 def add_auto_user():
     data = request.get_json()
     uid = data.get('uid', '').strip()
-    limit = data.get('limit', 492)
+    limit = data.get('limit', 220)
     if not uid:
         return jsonify({'success': False, 'message': 'UID required'})
     if uid in auto_like_users:
@@ -1149,9 +1135,9 @@ def add_auto_user():
     auto_like_users.append(uid)
     user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
     save_users()
-    global AUTO_LIKE_LIMIT
-    AUTO_LIKE_LIMIT = limit
-    return jsonify({'success': True, 'message': f'Added {uid} with limit {limit}'})
+    global AUTO_LIKE_VERIFIED_LIMIT
+    AUTO_LIKE_VERIFIED_LIMIT = limit
+    return jsonify({'success': True, 'message': f'Added {uid} with verified limit {limit}'})
 
 @app.route('/delete-user', methods=['POST'])
 def delete_user():
@@ -1212,7 +1198,7 @@ def handle_requests():
         return jsonify({"error": "Daily limit reached", "remains": f"(0/{KEY_LIMIT})"}), 429
 
     check_token = None
-    for account in accounts[:5]:
+    for account in accounts[:3]:
         check_token = asyncio.run(get_valid_token(account['uid'], account['password']))
         if check_token:
             break
@@ -1234,7 +1220,7 @@ def handle_requests():
     like_url = f"{base_url}/LikeProfile"
 
     limit = requested_likes if requested_likes and requested_likes > 0 else 50
-    result = asyncio.run(send_likes_concurrent(uid, server_name, like_url, limit))
+    result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, limit, 0))
     success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -1298,7 +1284,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ FULLY FIXED Auto-Like System – Profile Info + All Regions + Failed Likes")
+print("✅ COMPLETE Auto-Like System – 20 Likes + Unlimited + Auto-Like with Verified Limit")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
