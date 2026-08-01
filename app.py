@@ -546,7 +546,7 @@ def set_auto_time(hour, minute):
     return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
 
 # ============================================================
-# FULL-WIDTH UI – NO SIDEBAR
+# PREMIUM CYBERPUNK UI – BRIGHTER THEME
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -562,121 +562,107 @@ WEBSITE_HTML = '''
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body {
             font-family: 'Inter', sans-serif;
-            background: #06080f;
-            color: #e0e6ff;
+            background: #161A22;
+            color: #e8edf5;
             min-height: 100vh;
             background-image: 
-                radial-gradient(circle at 10% 20%, rgba(0,255,200,0.03) 0%, transparent 50%),
-                radial-gradient(circle at 90% 80%, rgba(100,0,255,0.03) 0%, transparent 50%);
+                radial-gradient(circle at 15% 20%, rgba(0,255,200,0.04) 0%, transparent 50%),
+                radial-gradient(circle at 85% 80%, rgba(100,0,255,0.04) 0%, transparent 50%);
         }
         
         /* ===== SCROLLBAR ===== */
         ::-webkit-scrollbar { width: 6px; }
-        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.02); }
-        ::-webkit-scrollbar-thumb { background: rgba(0,255,200,0.15); border-radius: 10px; }
-        ::-webkit-scrollbar-thumb:hover { background: rgba(0,255,200,0.25); }
+        ::-webkit-scrollbar-track { background: rgba(255,255,255,0.03); }
+        ::-webkit-scrollbar-thumb { background: rgba(0,255,200,0.2); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: rgba(0,255,200,0.3); }
         
         /* ===== ANIMATIONS ===== */
         @keyframes fadeInUp { from { opacity: 0; transform: translateY(20px); } to { opacity: 1; transform: translateY(0); } }
-        @keyframes pulseGlow { 0%,100% { box-shadow: 0 0 20px rgba(0,255,200,0.03); } 50% { box-shadow: 0 0 40px rgba(0,255,200,0.08); } }
-        @keyframes neonPulse { 0%,100% { box-shadow: 0 0 10px rgba(0,255,200,0.1), 0 0 20px rgba(0,255,200,0.05); } 50% { box-shadow: 0 0 20px rgba(0,255,200,0.2), 0 0 40px rgba(0,255,200,0.1); } }
+        @keyframes neonPulse { 0%,100% { box-shadow: 0 0 15px rgba(0,255,200,0.08), 0 0 30px rgba(0,255,200,0.03); } 50% { box-shadow: 0 0 25px rgba(0,255,200,0.15), 0 0 50px rgba(0,255,200,0.05); } }
         @keyframes glowPulse { 0%,100% { opacity: 0.6; } 50% { opacity: 1; } }
+        @keyframes titleGlow { 0%,100% { text-shadow: 0 0 20px rgba(0,255,200,0.3), 0 0 40px rgba(0,255,200,0.1); } 50% { text-shadow: 0 0 30px rgba(0,255,200,0.5), 0 0 60px rgba(0,255,200,0.2); } }
         
         .fade-in { animation: fadeInUp 0.4s ease forwards; }
         
-        /* ===== LAYOUT ===== */
+        /* ===== MAIN CONTAINER ===== */
         .main {
-            padding: 20px 25px;
             max-width: 1400px;
             margin: 0 auto;
+            padding: 24px 28px;
             width: 100%;
+        }
+        
+        /* ===== TITLE ===== */
+        .title-section {
+            text-align: center;
+            padding: 18px 0 10px 0;
+            margin-bottom: 8px;
+        }
+        .title-section h1 {
+            font-family: 'Orbitron', monospace;
+            font-size: 2.4em;
+            font-weight: 900;
+            background: linear-gradient(135deg, #00ffc8, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: 3px;
+            animation: titleGlow 3s ease-in-out infinite;
+        }
+        .title-section .sub-title {
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85em;
+            color: #6a7a9a;
+            letter-spacing: 6px;
+            text-transform: uppercase;
+            margin-top: 2px;
+            font-weight: 400;
         }
         
         /* ===== GLASS CARDS ===== */
         .glass {
-            background: rgba(12,18,38,0.5);
+            background: rgba(24,30,44,0.7);
             backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,255,200,0.05);
-            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(0,255,200,0.06);
+            box-shadow: 0 8px 32px rgba(0,0,0,0.25);
             border-radius: 14px;
             transition: 0.3s;
         }
         .glass:hover { 
-            border-color: rgba(0,255,200,0.1); 
-        }
-        
-        /* ===== HEADER ===== */
-        .header {
-            padding: 18px 22px;
-            margin-bottom: 16px;
-            background: rgba(12,18,38,0.4);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(0,255,200,0.04);
-            border-radius: 14px;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 12px;
-        }
-        .header h1 {
-            font-family: 'Orbitron', monospace;
-            font-size: 1.4em;
-            font-weight: 700;
-            background: linear-gradient(135deg, #00ffc8, #00ccff);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            letter-spacing: 1px;
-        }
-        .header .sub {
-            color: #4a5580;
-            font-size: 0.78em;
-            letter-spacing: 0.5px;
-        }
-        .badge-auto {
-            background: rgba(0,255,200,0.08);
-            color: #00ffc8;
-            padding: 4px 14px;
-            border-radius: 20px;
-            border: 1px solid rgba(0,255,200,0.12);
-            font-size: 0.75em;
-            font-weight: 600;
-        }
-        .badge-reset { color: #ffd700; font-weight: 500; }
-        .header-right {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            flex-wrap: wrap;
+            border-color: rgba(0,255,200,0.12); 
         }
         
         /* ===== STATUS ROW ===== */
         .status-row {
             display: flex;
             flex-wrap: wrap;
-            gap: 12px;
-            margin-bottom: 16px;
-            align-items: center;
+            gap: 14px;
+            margin-bottom: 18px;
+            justify-content: center;
+            padding: 4px 0;
         }
         .status-row .item {
-            background: rgba(0,255,200,0.03);
-            padding: 5px 14px;
+            background: rgba(0,255,200,0.04);
+            padding: 6px 18px;
             border-radius: 20px;
-            font-size: 0.8em;
-            border: 1px solid rgba(0,255,200,0.04);
-            color: #5a6a8a;
+            font-size: 0.82em;
+            border: 1px solid rgba(0,255,200,0.05);
+            color: #7a8aaa;
+            display: flex;
+            align-items: center;
+            gap: 8px;
         }
-        .status-row .item i { margin-right: 6px; color: #00ffc8; }
+        .status-row .item i { color: #00ffc8; font-size: 0.9em; }
+        .status-row .item span { color: #c8d0e0; font-weight: 500; }
         
         /* ===== TOP NAV BUTTONS ===== */
         .nav-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
             gap: 10px;
-            margin-bottom: 20px;
+            margin-bottom: 22px;
         }
         .nav-btn {
-            padding: 12px 16px;
+            padding: 12px 14px;
             border: 1px solid rgba(0,255,200,0.06);
             border-radius: 12px;
             cursor: pointer;
@@ -689,8 +675,8 @@ WEBSITE_HTML = '''
             gap: 8px;
             font-family: 'Inter', sans-serif;
             letter-spacing: 0.3px;
-            background: rgba(255,255,255,0.02);
-            color: #6a7a9a;
+            background: rgba(255,255,255,0.03);
+            color: #7a8aaa;
             min-height: 44px;
             text-align: center;
         }
@@ -698,33 +684,33 @@ WEBSITE_HTML = '''
             background: rgba(0,255,200,0.06); 
             color: #00ffc8; 
             transform: translateY(-2px);
-            border-color: rgba(0,255,200,0.15);
+            border-color: rgba(0,255,200,0.12);
         }
         .nav-btn.active-nav {
-            background: rgba(0,255,200,0.08);
+            background: rgba(0,255,200,0.07);
             color: #00ffc8;
-            border-color: rgba(0,255,200,0.2);
-            box-shadow: 0 0 30px rgba(0,255,200,0.05);
-            animation: neonPulse 2s infinite;
+            border-color: rgba(0,255,200,0.15);
+            box-shadow: 0 0 30px rgba(0,255,200,0.04);
+            animation: neonPulse 2.5s infinite;
         }
         .nav-btn i { font-size: 0.9em; }
         
         /* ===== STATS GRID ===== */
         .stats-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
-            gap: 14px;
-            margin-bottom: 20px;
+            grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+            gap: 16px;
+            margin-bottom: 22px;
         }
         .stat-card {
-            padding: 16px 12px;
+            padding: 18px 14px;
             text-align: center;
-            background: rgba(12,18,38,0.4);
+            background: rgba(24,30,44,0.5);
             backdrop-filter: blur(8px);
             border: 1px solid rgba(0,255,200,0.04);
-            border-radius: 12px;
+            border-radius: 14px;
             transition: 0.3s;
-            min-height: 90px;
+            min-height: 100px;
             display: flex;
             flex-direction: column;
             justify-content: center;
@@ -737,20 +723,20 @@ WEBSITE_HTML = '''
         }
         .stat-card .num {
             font-family: 'Orbitron', monospace;
-            font-size: 2em;
+            font-size: 2.2em;
             font-weight: 700;
             line-height: 1.2;
         }
         .stat-card .lbl {
-            color: #4a5580;
+            color: #6a7a9a;
             font-size: 0.7em;
-            margin-top: 4px;
-            letter-spacing: 1px;
+            margin-top: 5px;
+            letter-spacing: 1.2px;
             text-transform: uppercase;
         }
         .stat-card .icon { 
             font-size: 1.1em; 
-            margin-bottom: 3px;
+            margin-bottom: 4px;
             opacity: 0.4;
         }
         .num-accounts { color: #4488ff; }
@@ -762,9 +748,9 @@ WEBSITE_HTML = '''
         
         /* ===== PANELS ===== */
         .panel {
-            padding: 18px 20px;
-            margin-bottom: 18px;
-            background: rgba(12,18,38,0.4);
+            padding: 20px 24px;
+            margin-bottom: 20px;
+            background: rgba(24,30,44,0.5);
             backdrop-filter: blur(8px);
             border: 1px solid rgba(0,255,200,0.04);
             border-radius: 14px;
@@ -772,12 +758,12 @@ WEBSITE_HTML = '''
         .panel h2 {
             color: #8a9abf;
             font-size: 0.9em;
-            margin-bottom: 12px;
-            letter-spacing: 1px;
+            margin-bottom: 14px;
+            letter-spacing: 1.2px;
             text-transform: uppercase;
             font-weight: 600;
         }
-        .panel h2 i { margin-right: 8px; color: #00ffc8; }
+        .panel h2 i { margin-right: 10px; color: #00ffc8; }
         
         .input-group {
             display: flex;
@@ -786,10 +772,10 @@ WEBSITE_HTML = '''
             align-items: center;
         }
         .input-group input, .input-group select {
-            padding: 10px 14px;
+            padding: 10px 16px;
             border-radius: 10px;
             border: 1px solid rgba(0,255,200,0.06);
-            background: rgba(0,0,0,0.3);
+            background: rgba(0,0,0,0.25);
             color: #e0e6ff;
             font-size: 0.9em;
             font-family: 'Inter', sans-serif;
@@ -799,13 +785,13 @@ WEBSITE_HTML = '''
         .input-group input:focus, .input-group select:focus {
             outline: none;
             border-color: rgba(0,255,200,0.15);
-            box-shadow: 0 0 20px rgba(0,255,200,0.03);
+            box-shadow: 0 0 20px rgba(0,255,200,0.04);
         }
-        .input-group select option { background: #0a0e1a; }
+        .input-group select option { background: #161A22; }
         
         /* ===== BUTTONS ===== */
         .btn {
-            padding: 10px 20px;
+            padding: 10px 22px;
             border: none;
             border-radius: 10px;
             cursor: pointer;
@@ -822,26 +808,26 @@ WEBSITE_HTML = '''
         .btn:hover { transform: translateY(-2px); }
         .btn-primary {
             background: linear-gradient(135deg, #00ffc8, #0099ff);
-            color: #06080f;
+            color: #0a0e1a;
             border: none;
         }
         .btn-primary:hover { box-shadow: 0 0 30px rgba(0,255,200,0.15); }
         .btn-success {
             background: rgba(0,255,100,0.12);
             color: #00ff66;
-            border: 1px solid rgba(0,255,100,0.12);
+            border: 1px solid rgba(0,255,100,0.1);
         }
         .btn-success:hover { background: rgba(0,255,100,0.2); }
         .btn-danger {
             background: rgba(255,0,50,0.12);
             color: #ff0044;
-            border: 1px solid rgba(255,0,50,0.12);
+            border: 1px solid rgba(255,0,50,0.1);
         }
         .btn-danger:hover { background: rgba(255,0,50,0.2); }
         .btn-warning {
             background: rgba(255,200,0,0.12);
             color: #ffcc00;
-            border: 1px solid rgba(255,200,0,0.12);
+            border: 1px solid rgba(255,200,0,0.1);
         }
         .btn-warning:hover { background: rgba(255,200,0,0.2); }
         .btn-rocket {
@@ -862,11 +848,11 @@ WEBSITE_HTML = '''
             display: flex;
             flex-wrap: wrap;
             gap: 6px;
-            margin-top: 10px;
+            margin-top: 12px;
         }
         .user-item {
             background: rgba(0,255,200,0.03);
-            padding: 6px 14px;
+            padding: 6px 16px;
             border-radius: 20px;
             display: inline-flex;
             align-items: center;
@@ -878,7 +864,7 @@ WEBSITE_HTML = '''
         }
         .user-item:hover { border-color: rgba(0,255,200,0.1); }
         .user-item .uid { font-weight: 600; color: #00ffc8; }
-        .user-item .stats { color: #4a5580; font-size: 0.75em; }
+        .user-item .stats { color: #5a6a8a; font-size: 0.75em; }
         .user-item .stats span { color: #00ff66; font-weight: 600; }
         .user-item .del-btn {
             background: none;
@@ -902,18 +888,18 @@ WEBSITE_HTML = '''
         }
         th {
             background: rgba(0,255,200,0.03);
-            padding: 10px 14px;
+            padding: 10px 16px;
             text-align: left;
             font-weight: 600;
-            color: #4a5580;
+            color: #5a6a8a;
             border-bottom: 1px solid rgba(0,255,200,0.03);
             text-transform: uppercase;
             font-size: 0.7em;
             letter-spacing: 0.8px;
         }
-        td { padding: 10px 14px; border-bottom: 1px solid rgba(255,255,255,0.02); }
+        td { padding: 10px 16px; border-bottom: 1px solid rgba(255,255,255,0.02); }
         .badge {
-            padding: 2px 10px;
+            padding: 2px 12px;
             border-radius: 20px;
             font-size: 0.65em;
             font-weight: 600;
@@ -921,10 +907,10 @@ WEBSITE_HTML = '''
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        .badge-working { background: rgba(0,255,100,0.12); color: #00ff66; border: 1px solid rgba(0,255,100,0.08); }
-        .badge-timeout { background: rgba(255,0,50,0.12); color: #ff0044; border: 1px solid rgba(255,0,50,0.08); }
-        .badge-reset { background: rgba(255,200,0,0.12); color: #ffcc00; border: 1px solid rgba(255,200,0,0.08); }
-        .badge-unknown { background: rgba(136,153,187,0.12); color: #8899bb; border: 1px solid rgba(136,153,187,0.08); }
+        .badge-working { background: rgba(0,255,100,0.12); color: #00ff66; border: 1px solid rgba(0,255,100,0.06); }
+        .badge-timeout { background: rgba(255,0,50,0.12); color: #ff0044; border: 1px solid rgba(255,0,50,0.06); }
+        .badge-reset { background: rgba(255,200,0,0.12); color: #ffcc00; border: 1px solid rgba(255,200,0,0.06); }
+        .badge-unknown { background: rgba(136,153,187,0.12); color: #8899bb; border: 1px solid rgba(136,153,187,0.06); }
         
         .section-title {
             font-size: 1em;
@@ -945,7 +931,7 @@ WEBSITE_HTML = '''
             animation: glowPulse 1.5s infinite;
         }
         
-        .note { color: #4a5580; font-size: 0.8em; margin-top: 8px; }
+        .note { color: #5a6a8a; font-size: 0.8em; margin-top: 8px; }
         
         /* ===== HISTORY ===== */
         .history-item {
@@ -961,23 +947,23 @@ WEBSITE_HTML = '''
         .history-item .uid { color: #00ffc8; font-weight: 600; }
         .history-item .name { color: #e0e6ff; }
         .history-item .likes { color: #00ff66; font-weight: 600; }
-        .history-item .time { color: #4a5580; font-size: 0.75em; }
+        .history-item .time { color: #5a6a8a; font-size: 0.75em; }
         
         /* ===== RESULT MODAL ===== */
         .result-modal {
             display: none;
             position: fixed;
             top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.85);
+            background: rgba(0,0,0,0.8);
             z-index: 999;
             align-items: center;
             justify-content: center;
-            backdrop-filter: blur(10px);
+            backdrop-filter: blur(8px);
         }
         .result-modal.active { display: flex; }
         .result-box {
-            background: #0e1430;
-            padding: 30px 35px;
+            background: #1a2030;
+            padding: 32px 36px;
             border-radius: 18px;
             max-width: 500px;
             width: 90%;
@@ -1000,7 +986,7 @@ WEBSITE_HTML = '''
             padding: 8px 0;
             border-bottom: 1px solid rgba(255,255,255,0.02);
         }
-        .result-box .row .label { color: #4a5580; font-size: 0.9em; }
+        .result-box .row .label { color: #5a6a8a; font-size: 0.9em; }
         .result-box .row .value { color: #00ff66; font-weight: 600; font-size: 0.9em; }
         .result-box .row .value-failed { color: #ff0044; }
         .result-box .close-btn {
@@ -1024,50 +1010,46 @@ WEBSITE_HTML = '''
         
         /* ===== RESPONSIVE ===== */
         @media (max-width: 992px) {
-            .main { padding: 15px 18px; }
+            .main { padding: 18px 20px; }
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
             .nav-grid { grid-template-columns: repeat(4, 1fr); }
-            .header h1 { font-size: 1.2em; }
+            .title-section h1 { font-size: 2em; }
         }
         @media (max-width: 768px) {
-            .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 10px; }
-            .stat-card { padding: 12px 8px; min-height: 70px; }
-            .stat-card .num { font-size: 1.5em; }
-            .header { flex-direction: column; align-items: flex-start; }
-            .header-right { width: 100%; justify-content: flex-start; }
+            .main { padding: 14px 16px; }
+            .stats-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+            .stat-card { padding: 14px 10px; min-height: 80px; }
+            .stat-card .num { font-size: 1.6em; }
             .nav-grid { grid-template-columns: repeat(3, 1fr); gap: 8px; }
             .nav-btn { font-size: 0.7em; padding: 10px 12px; min-height: 38px; }
-            .panel { padding: 14px 16px; }
+            .title-section h1 { font-size: 1.6em; }
+            .title-section .sub-title { font-size: 0.7em; letter-spacing: 4px; }
+            .panel { padding: 16px 18px; }
             .input-group input, .input-group select { min-width: 100px; font-size: 0.8em; padding: 8px 12px; }
             .btn { font-size: 0.8em; padding: 8px 16px; min-height: 36px; }
             .result-box { padding: 20px; }
+            .status-row .item { font-size: 0.7em; padding: 4px 12px; }
         }
         @media (max-width: 480px) {
+            .main { padding: 10px 12px; }
             .stats-grid { grid-template-columns: 1fr 1fr; }
             .nav-grid { grid-template-columns: repeat(2, 1fr); }
             .nav-btn { font-size: 0.65em; padding: 8px 10px; min-height: 34px; }
-            .main { padding: 10px 12px; }
-            .header h1 { font-size: 1em; }
-            .badge-auto { font-size: 0.65em; padding: 3px 10px; }
-            .status-row .item { font-size: 0.7em; padding: 4px 10px; }
+            .title-section h1 { font-size: 1.3em; }
+            .title-section .sub-title { font-size: 0.6em; letter-spacing: 3px; }
             .stat-card .num { font-size: 1.3em; }
+            .stat-card { padding: 12px 8px; min-height: 70px; }
+            .status-row .item { font-size: 0.65em; padding: 3px 10px; }
         }
     </style>
 </head>
 <body>
-    <!-- ===== MAIN CONTENT (Full Width) ===== -->
+    <!-- ===== MAIN CONTENT ===== -->
     <div class="main">
-        <!-- Header -->
-        <div class="header">
-            <div>
-                <h1><i class="fas fa-bolt" style="font-size:0.7em;"></i> HEX CHEATS</h1>
-                <div class="sub"><i class="far fa-clock"></i> Real-time monitoring · Auto-reset daily at <span id="auto-time-display">4:02</span> AM IST</div>
-            </div>
-            <div class="header-right">
-                <span class="badge-auto"><i class="fas fa-play"></i> Auto-Like Running</span>
-                <span style="font-size:0.78em; color:#4a5580;"><i class="fas fa-sync-alt"></i> Reset: <span class="badge-reset" id="next-reset">Loading...</span></span>
-                <button class="btn btn-ghost" onclick="location.reload()" style="padding:5px 12px; font-size:0.8em; min-height:auto;"><i class="fas fa-sync"></i></button>
-            </div>
+        <!-- Title Section -->
+        <div class="title-section">
+            <h1>HEX CHEATS</h1>
+            <div class="sub-title">Like Bot System</div>
         </div>
         
         <!-- Status Row -->
@@ -1151,7 +1133,7 @@ WEBSITE_HTML = '''
         <div id="section-auto" class="section">
             <div class="panel">
                 <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                <p style="color:#4a5580; margin-bottom:12px; font-size:0.85em;">Daily auto-like. All accounts send at same time. Stops after verified limit.</p>
+                <p style="color:#5a6a8a; margin-bottom:12px; font-size:0.85em;">Daily auto-like. All accounts send at same time. Stops after verified limit.</p>
                 <div class="input-group">
                     <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
                     <input type="number" id="auto-limit" placeholder="Verified Limit" value="220" style="width:130px;" />
@@ -1225,7 +1207,7 @@ WEBSITE_HTML = '''
             <div class="panel">
                 <h2><i class="fas fa-cog"></i> Settings</h2>
                 <div style="margin-bottom:12px;">
-                    <label style="color:#4a5580; font-size:0.85em;">Auto-Like Time (IST)</label>
+                    <label style="color:#5a6a8a; font-size:0.85em;">Auto-Like Time (IST)</label>
                     <div class="input-group" style="margin-top:6px;">
                         <input type="number" id="set-hour" placeholder="Hour" value="4" style="width:80px;" />
                         <input type="number" id="set-minute" placeholder="Minute" value="2" style="width:80px;" />
@@ -1286,11 +1268,9 @@ WEBSITE_HTML = '''
                     document.getElementById('total-likes').textContent = data.total_likes || 0;
                     document.getElementById('targets-liked').textContent = data.targets_liked || 0;
                     document.getElementById('auto-users').textContent = data.auto_users || 0;
-                    document.getElementById('next-reset').textContent = data.next_reset || 'Loading...';
                     document.getElementById('lastAutoRun').textContent = data.last_auto_run ? formatTime(data.last_auto_run) : 'Never';
                     document.getElementById('autoRunStatus').textContent = data.auto_run_status || 'Idle';
                     document.getElementById('autoRunMessage').textContent = data.auto_run_message || '-';
-                    document.getElementById('auto-time-display').textContent = data.auto_time || '4:02';
                     
                     // Auto queue
                     let userHtml = '';
@@ -1344,23 +1324,23 @@ WEBSITE_HTML = '''
                 .then(data => {
                     let html = `
                         <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
-                            <span style="color:#4a5580;">Total Likes Sent</span>
+                            <span style="color:#5a6a8a;">Total Likes Sent</span>
                             <span style="color:#00ff66;font-weight:600;">${data.total_likes_sent}</span>
                         </div>
                         <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
-                            <span style="color:#4a5580;">Total Targets</span>
+                            <span style="color:#5a6a8a;">Total Targets</span>
                             <span style="color:#00ff66;font-weight:600;">${data.total_targets}</span>
                         </div>
                         <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
-                            <span style="color:#4a5580;">Working Accounts</span>
+                            <span style="color:#5a6a8a;">Working Accounts</span>
                             <span style="color:#00ff66;font-weight:600;">${data.working_accounts}</span>
                         </div>
                         <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.02);">
-                            <span style="color:#4a5580;">Auto Queue Users</span>
+                            <span style="color:#5a6a8a;">Auto Queue Users</span>
                             <span style="color:#00ff66;font-weight:600;">${data.auto_users}</span>
                         </div>
                         <div class="row" style="display:flex;justify-content:space-between;padding:8px 0;">
-                            <span style="color:#4a5580;">Next Reset</span>
+                            <span style="color:#5a6a8a;">Next Reset</span>
                             <span style="color:#ffcc00;font-weight:600;">${data.next_reset}</span>
                         </div>
                     `;
@@ -1375,7 +1355,7 @@ WEBSITE_HTML = '''
                     let html = '';
                     if (data.logs && data.logs.length > 0) {
                         data.logs.forEach(log => {
-                            html += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.02);color:#4a5580;">
+                            html += `<div style="padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.02);color:#5a6a8a;">
                                 <span style="color:#00ffc8;">[${log.time}]</span> 
                                 <span style="color:${log.type === 'success' ? '#00ff66' : log.type === 'error' ? '#ff0044' : '#ffcc00'}">${log.message}</span>
                             </div>`;
@@ -1474,7 +1454,7 @@ WEBSITE_HTML = '''
                     <div style="background:rgba(0,255,200,0.03);padding:14px;border-radius:10px;border:1px solid rgba(0,255,200,0.04);">
                         <div style="color:#00ffc8;font-weight:600;font-size:1em;">UID: ${data.uid}</div>
                         <div style="color:#e0e6ff;font-size:0.9em;">Name: ${data.username}</div>
-                        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.85em;color:#4a5580;"><span>Total Likes</span><span style="color:#00ff66;font-weight:600;">${data.likes}</span></div>
+                        <div style="display:flex;justify-content:space-between;margin-top:4px;font-size:0.85em;color:#5a6a8a;"><span>Total Likes</span><span style="color:#00ff66;font-weight:600;">${data.likes}</span></div>
                     </div>
                 `;
             });
@@ -1524,7 +1504,6 @@ WEBSITE_HTML = '''
             .then(res => res.json())
             .then(data => {
                 document.getElementById('time-status').textContent = data.message;
-                document.getElementById('auto-time-display').textContent = `${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')}`;
                 loadData();
             });
         }
@@ -1857,7 +1836,7 @@ auto_thread.start()
 
 threading.Thread(target=run_status_check).start()
 
-print("✅ HEX CHEATS – Full-Width Premium UI Started (No Sidebar)")
+print("✅ HEX CHEATS – Premium Dashboard Started (Brighter Theme, No Sidebar)")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 
 if __name__ == '__main__':
