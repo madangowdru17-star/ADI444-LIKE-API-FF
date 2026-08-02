@@ -20,6 +20,7 @@ import jwt
 from datetime import timedelta
 import pickle
 import threading
+import pytz
 
 app = Flask(__name__)
 app.secret_key = 'hex-cheats-secret-key-2024'
@@ -40,12 +41,10 @@ auto_like_users = []
 user_stats = {}
 like_history = []
 
-# Auto-like time: 4:00 AM IST
-RESET_HOUR = 4
-RESET_MINUTE = 0
-RESET_SECOND = 0
-AUTO_LIKE_LIMIT = 492
-AUTO_LIKE_VERIFIED_LIMIT = 220
+# Auto-like time: default 4:00 AM IST
+AUTO_LIKE_HOUR = 4
+AUTO_LIKE_MINUTE = 0
+AUTO_LIKE_SECOND = 0
 
 RATE_LIMIT_DELAYS = [0.02, 0.05, 0.08, 0.1]
 
@@ -189,11 +188,11 @@ def add_to_history(target_uid, likes_sent, before, after, username, server="IND"
     }
     like_history.append(entry)
     save_users()
-    add_activity_log(f"✅ {username} | Sent {likes_sent} likes | Before: {before} | After: {after} | Gained: {after - before}", "success")
+    add_activity_log(f"✅ {username} | Sent {likes_sent} likes | Before: {before} | After: {after} | Gained: {after - before} | Server: {server}", "success")
 
 def get_next_reset_time():
     now = datetime.now()
-    reset_time = datetime(now.year, now.month, now.day, RESET_HOUR, RESET_MINUTE, RESET_SECOND)
+    reset_time = datetime(now.year, now.month, now.day, AUTO_LIKE_HOUR, AUTO_LIKE_MINUTE, AUTO_LIKE_SECOND)
     if now >= reset_time:
         reset_time += timedelta(days=1)
     return reset_time
@@ -264,7 +263,7 @@ async def get_user_info(target_uid, server_name="IND"):
         
         check_token = None
         for account in accounts[:3]:
-            token = await get_valid_token(account['uid'], account['password'])
+            token = await get_valid_token(account['uid'], account['password'], server_name)
             if token:
                 check_token = token
                 break
@@ -307,9 +306,10 @@ async def generate_jwt_token(uid, password):
     except:
         return None
 
-async def get_valid_token(uid, password):
-    if uid in TOKEN_CACHE:
-        cached = TOKEN_CACHE[uid]
+async def get_valid_token(uid, password, server_name="IND"):
+    cache_key = f"{uid}:{server_name}"
+    if cache_key in TOKEN_CACHE:
+        cached = TOKEN_CACHE[cache_key]
         remaining = (cached["expires_at"] - datetime.utcnow()).total_seconds()
         if remaining > 1800:
             return cached["token"]
@@ -321,9 +321,9 @@ async def get_valid_token(uid, password):
     try:
         payload = jwt.decode(token, options={"verify_signature": False})
         exp = payload.get("exp")
-        TOKEN_CACHE[uid] = {"token": token, "expires_at": datetime.utcfromtimestamp(exp)}
+        TOKEN_CACHE[cache_key] = {"token": token, "expires_at": datetime.utcfromtimestamp(exp)}
     except:
-        TOKEN_CACHE[uid] = {"token": token, "expires_at": datetime.utcnow() + timedelta(hours=24)}
+        TOKEN_CACHE[cache_key] = {"token": token, "expires_at": datetime.utcnow() + timedelta(hours=24)}
     
     return token
 
@@ -340,7 +340,7 @@ def create_protobuf_message(user_id, region):
     message.region = region
     return message.SerializeToString()
 
-async def send_like_fast(encrypted_uid, token, url, account_uid):
+async def send_like_fast(encrypted_uid, token, url, account_uid, server_name):
     edata = bytes.fromhex(encrypted_uid)
     headers = {
         'User-Agent': "Dalvik/2.1.0 (Linux; U; Android 9; ASUS_Z01QD Build/PI)",
@@ -362,7 +362,8 @@ async def send_like_fast(encrypted_uid, token, url, account_uid):
     except:
         return False
 
-async def send_likes_with_verified_limit(target_uid, server_name, url, max_likes, verified_limit=0):
+async def send_likes_all_accounts(target_uid, server_name, url):
+    """Send likes using ALL accounts - no limit"""
     accounts = load_accounts(server_name)
     if not accounts:
         return {'success': 0, 'failed': 0, 'total': 0, 'stopped': False}
@@ -378,20 +379,21 @@ async def send_likes_with_verified_limit(target_uid, server_name, url, max_likes
     if not fresh_accounts:
         return {'success': 0, 'failed': 0, 'total': len(accounts), 'skipped': skipped, 'stopped': True}
     
-    accounts_to_use = fresh_accounts[:min(max_likes, len(fresh_accounts))]
+    # Use ALL fresh accounts
+    accounts_to_use = fresh_accounts
     
     protobuf_message = create_protobuf_message(target_uid, server_name)
     encrypted_uid = encrypt_message(protobuf_message)
     
     token_tasks = []
     for acc in accounts_to_use:
-        token_tasks.append(get_valid_token(acc['uid'], acc['password']))
+        token_tasks.append(get_valid_token(acc['uid'], acc['password'], server_name))
     tokens = await asyncio.gather(*token_tasks, return_exceptions=True)
     
     like_tasks = []
     for i, acc in enumerate(accounts_to_use):
         if isinstance(tokens[i], str) and tokens[i]:
-            like_tasks.append(send_like_fast(encrypted_uid, tokens[i], url, acc['uid']))
+            like_tasks.append(send_like_fast(encrypted_uid, tokens[i], url, acc['uid'], server_name))
         else:
             like_tasks.append(asyncio.sleep(0, result=False))
     
@@ -404,10 +406,6 @@ async def send_likes_with_verified_limit(target_uid, server_name, url, max_likes
             successful += 1
         else:
             failed += 1
-    
-    stopped = False
-    if verified_limit > 0 and successful >= verified_limit:
-        stopped = True
     
     user_info = None
     if successful > 0:
@@ -427,7 +425,7 @@ async def send_likes_with_verified_limit(target_uid, server_name, url, max_likes
         'total': len(accounts),
         'accounts_used': len(accounts_to_use),
         'skipped': skipped,
-        'stopped': stopped,
+        'stopped': False,
         'user_info': user_info
     }
 
@@ -463,16 +461,17 @@ def get_player_info(encrypted_uid, server_name, token):
     except:
         return None
 
-async def check_all_accounts_status():
-    accounts = load_accounts("IND")
+async def check_all_accounts_status(server="IND"):
+    accounts = load_accounts(server)
     for acc in accounts[:50]:
         try:
-            token = await get_valid_token(acc['uid'], acc['password'])
+            token = await get_valid_token(acc['uid'], acc['password'], server)
             if token:
-                protobuf_message = create_protobuf_message("3997461446", "IND")
+                base_url = REGION_URLS.get(server, 'https://clientbp.ggpolarbear.com')
+                protobuf_message = create_protobuf_message("3997461446", server)
                 encrypted_uid = encrypt_message(protobuf_message)
-                url = "https://client.ind.freefiremobile.com/LikeProfile"
-                success = await send_like_fast(encrypted_uid, token, url, acc['uid'])
+                url = f"{base_url}/LikeProfile"
+                success = await send_like_fast(encrypted_uid, token, url, acc['uid'], server)
                 if success:
                     account_status[acc['uid']] = {'status': 'working', 'last_check': datetime.now().isoformat()}
                 else:
@@ -485,16 +484,15 @@ async def check_all_accounts_status():
         except:
             continue
 
-def run_status_check():
-    asyncio.run(check_all_accounts_status())
+def run_status_check(server="IND"):
+    asyncio.run(check_all_accounts_status(server))
 
 async def auto_like_daily():
     add_activity_log("🚀 Auto-like scheduler started", "info")
     while True:
         try:
             now = datetime.now()
-            # Set to 4:00 AM IST
-            target_time = now.replace(hour=4, minute=0, second=0, microsecond=0)
+            target_time = now.replace(hour=AUTO_LIKE_HOUR, minute=AUTO_LIKE_MINUTE, second=0, microsecond=0)
             if now >= target_time:
                 target_time += timedelta(days=1)
             wait_seconds = (target_time - now).total_seconds()
@@ -504,7 +502,7 @@ async def auto_like_daily():
             
             add_activity_log(f"🔄 Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
             
-            # Process ALL users in queue (do NOT remove them)
+            # Process ALL users in queue (stay forever)
             for user_uid in auto_like_users:
                 add_activity_log(f"📱 Processing user: {user_uid}", "info")
                 
@@ -512,13 +510,11 @@ async def auto_like_daily():
                 before_likes = user_info_before.get('likes', 0) if user_info_before else 0
                 before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
                 
-                # Send likes FAST - all accounts at once
-                result = await send_likes_with_verified_limit(
+                # Send ALL likes - no limit
+                result = await send_likes_all_accounts(
                     user_uid,
                     "IND",
-                    "https://client.ind.freefiremobile.com/LikeProfile",
-                    492,  # All accounts
-                    220   # Verified limit
+                    "https://client.ind.freefiremobile.com/LikeProfile"
                 )
                 likes_sent = result['success']
                 
@@ -529,8 +525,6 @@ async def auto_like_daily():
                     update_user_stats(user_uid, likes_sent, username, after_likes)
                     add_to_history(user_uid, likes_sent, before_likes, after_likes, username, "IND")
                     add_activity_log(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes}", "success")
-                    if result['stopped']:
-                        add_activity_log(f"🛑 Verified limit reached! Stopped.", "info")
                 else:
                     add_activity_log(f"⚠️ {user_uid} | Failed to get profile", "error")
                 
@@ -546,9 +540,9 @@ def start_auto_like():
     asyncio.run(auto_like_daily())
 
 def set_auto_time(hour, minute):
-    global RESET_HOUR, RESET_MINUTE
-    RESET_HOUR = hour
-    RESET_MINUTE = minute
+    global AUTO_LIKE_HOUR, AUTO_LIKE_MINUTE
+    AUTO_LIKE_HOUR = hour
+    AUTO_LIKE_MINUTE = minute
     add_activity_log(f"⏰ Auto-like time changed to {hour:02d}:{minute:02d} IST", "info")
     return f"Auto-like time set to {hour:02d}:{minute:02d} IST"
 
@@ -699,7 +693,7 @@ LOGIN_HTML = '''
 '''
 
 # ============================================================
-# PREMIUM DASHBOARD – FINAL VERSION
+# PREMIUM DASHBOARD
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -741,7 +735,6 @@ WEBSITE_HTML = '''
             width: 100%;
         }
         
-        /* ===== TITLE CENTERED ===== */
         .title-section {
             text-align: center;
             padding: 12px 0 8px 0;
@@ -767,7 +760,6 @@ WEBSITE_HTML = '''
             font-weight: 400;
         }
         
-        /* ===== HEADER TOP ===== */
         .header-top {
             display: flex;
             justify-content: flex-end;
@@ -834,7 +826,6 @@ WEBSITE_HTML = '''
         .status-row .item i { color: #00E5FF; font-size: 0.9em; }
         .status-row .item span { color: #F8FAFC; font-weight: 500; }
         
-        /* ===== NAV BUTTONS ===== */
         .nav-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(105px, 1fr));
@@ -876,7 +867,6 @@ WEBSITE_HTML = '''
         }
         .nav-btn i { font-size: 0.9em; }
         
-        /* ===== STATS ===== */
         .stats-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -923,7 +913,6 @@ WEBSITE_HTML = '''
         .num-targets { color: #FFC107; }
         .num-queue { color: #00E5FF; }
         
-        /* ===== PANELS ===== */
         .panel {
             padding: 20px 24px;
             margin-bottom: 20px;
@@ -966,7 +955,6 @@ WEBSITE_HTML = '''
         }
         .input-group select option { background: #0D1117; }
         
-        /* ===== BUTTONS ===== */
         .btn {
             padding: 10px 22px;
             border: none;
@@ -1122,7 +1110,6 @@ WEBSITE_HTML = '''
         .history-item .likes { color: #00E676; font-weight: 600; }
         .history-item .time { color: #A8B3CF; font-size: 0.75em; }
         
-        /* ===== LOGS ===== */
         .logs-container {
             max-height: 300px;
             overflow-y: auto;
@@ -1145,7 +1132,6 @@ WEBSITE_HTML = '''
         .log-entry .log-error { color: #FF4D6D; }
         .log-entry .log-info { color: #FFC107; }
         
-        /* ===== MODAL ===== */
         .result-modal {
             display: none;
             position: fixed;
@@ -1204,7 +1190,6 @@ WEBSITE_HTML = '''
         .section { display: none; }
         .section.active { display: block; animation: fadeInUp 0.35s ease; }
         
-        /* ===== RESPONSIVE ===== */
         @media (max-width: 992px) {
             .main { padding: 18px 20px; }
             .stats-grid { grid-template-columns: repeat(3, 1fr); }
@@ -1249,7 +1234,7 @@ WEBSITE_HTML = '''
             <div class="sub-title">Like Bot System</div>
         </div>
         
-        <!-- Header Top (Server Status + Logout) -->
+        <!-- Header Top -->
         <div class="header-top">
             <div class="server-status">
                 <i class="fas fa-server"></i>
@@ -1340,15 +1325,14 @@ WEBSITE_HTML = '''
         <div id="section-auto" class="section">
             <div class="panel">
                 <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                <p style="color:#A8B3CF; margin-bottom:12px; font-size:0.85em;">Daily at 4:00 AM IST. All accounts send to queued UIDs.</p>
+                <p style="color:#A8B3CF; margin-bottom:12px; font-size:0.85em;">Daily at custom time. All accounts send ALL likes to queued UIDs.</p>
                 <div class="input-group">
                     <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
-                    <input type="number" id="auto-limit" placeholder="Verified Limit" value="220" style="width:130px;" />
                     <button class="btn btn-success" onclick="addAutoUser()"><i class="fas fa-plus"></i> Add</button>
                     <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear</button>
                 </div>
                 <div class="user-list" id="auto-user-list"></div>
-                <div class="note"><i class="fas fa-info-circle"></i> UIDs stay in queue forever. Only manual removal deletes them.</div>
+                <div class="note"><i class="fas fa-info-circle"></i> UIDs stay in queue forever. Only manual removal deletes them. Uses ALL accounts.</div>
             </div>
         </div>
         
@@ -1418,9 +1402,12 @@ WEBSITE_HTML = '''
                 <div style="margin-bottom:12px;">
                     <label style="color:#A8B3CF; font-size:0.85em;">Auto-Like Time (IST)</label>
                     <div class="input-group" style="margin-top:6px;">
-                        <input type="number" id="set-hour" placeholder="Hour" value="4" style="width:80px;" />
-                        <input type="number" id="set-minute" placeholder="Minute" value="0" style="width:80px;" />
+                        <input type="number" id="set-hour" placeholder="Hour (0-23)" value="4" style="width:80px;" />
+                        <input type="number" id="set-minute" placeholder="Minute (0-59)" value="0" style="width:80px;" />
                         <button class="btn btn-primary" onclick="setAutoTime()"><i class="fas fa-save"></i> Save Time</button>
+                    </div>
+                    <div style="margin-top:8px; font-size:0.8em; color:#4a5a7a;">
+                        Current: <span id="current-auto-time">04:00 IST</span>
                     </div>
                 </div>
                 <div id="time-status" style="color:#00E676; font-size:0.85em;"></div>
@@ -1464,11 +1451,22 @@ WEBSITE_HTML = '''
             if (id === 'history') loadHistory();
             if (id === 'stats') loadStats();
             if (id === 'logs') loadLogs();
+            if (id === 'settings') loadAutoTime();
         }
         
         function formatTime(iso) {
             if (!iso) return 'Never';
             try { const d = new Date(iso); return d.toLocaleTimeString('en-IN', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' }); } catch { return iso; }
+        }
+        
+        function loadAutoTime() {
+            fetch('/api/auto-time')
+                .then(res => res.json())
+                .then(data => {
+                    document.getElementById('current-auto-time').textContent = data.time;
+                    document.getElementById('set-hour').value = data.hour;
+                    document.getElementById('set-minute').value = data.minute;
+                });
         }
         
         // ============================================
@@ -1678,12 +1676,11 @@ WEBSITE_HTML = '''
         
         function addAutoUser() {
             const uid = document.getElementById('target-uid-auto').value.trim();
-            const limit = parseInt(document.getElementById('auto-limit').value) || 220;
             if (!uid) { alert('Enter a UID'); return; }
             fetch('/add-auto-user', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ uid, limit })
+                body: JSON.stringify({ uid })
             })
             .then(res => res.json())
             .then(data => {
@@ -1720,6 +1717,7 @@ WEBSITE_HTML = '''
             .then(res => res.json())
             .then(data => {
                 document.getElementById('time-status').textContent = data.message;
+                document.getElementById('current-auto-time').textContent = `${String(hour).padStart(2,'0')}:${String(minute).padStart(2,'0')} IST`;
                 loadData();
             });
         }
@@ -1731,6 +1729,7 @@ WEBSITE_HTML = '''
         setInterval(loadData, 5000);
         setInterval(loadLogs, 5000);
         setInterval(loadHistory, 10000);
+        loadAutoTime();
     </script>
 </body>
 </html>
@@ -1809,7 +1808,17 @@ def dashboard_data():
         'last_auto_run': None,
         'auto_run_status': 'Idle',
         'auto_run_message': '',
-        'auto_time': f"{RESET_HOUR:02d}:{RESET_MINUTE:02d}"
+        'auto_time': f"{AUTO_LIKE_HOUR:02d}:{AUTO_LIKE_MINUTE:02d}"
+    })
+
+@app.route('/api/auto-time')
+def get_auto_time():
+    if not session.get('logged_in'):
+        return jsonify({'error': 'Unauthorized'}), 401
+    return jsonify({
+        'hour': AUTO_LIKE_HOUR,
+        'minute': AUTO_LIKE_MINUTE,
+        'time': f"{AUTO_LIKE_HOUR:02d}:{AUTO_LIKE_MINUTE:02d} IST"
     })
 
 @app.route('/api/history')
@@ -1890,11 +1899,13 @@ def send_likes():
     like_url = f"{base_url}/LikeProfile"
     
     if count == 20:
-        result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, 20, 20))
+        # Send exactly 20
+        result = await send_likes_all_accounts(uid, server_name, like_url)
+        likes_sent = min(result['success'], 20)
     else:
-        result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, 999999, 0))
-    
-    likes_sent = result['success']
+        # Send ALL
+        result = await send_likes_all_accounts(uid, server_name, like_url)
+        likes_sent = result['success']
     
     user_info_after = asyncio.run(get_user_info(uid, server_name))
     if user_info_after:
@@ -1916,7 +1927,7 @@ def send_likes():
         'verified_added': after_likes - before_likes,
         'failed': result.get('failed', 0),
         'server': server_name,
-        'stopped': result.get('stopped', False)
+        'stopped': False
     })
 
 @app.route('/add-auto-user', methods=['POST'])
@@ -1926,7 +1937,6 @@ def add_auto_user():
     
     data = request.get_json()
     uid = data.get('uid', '').strip()
-    limit = data.get('limit', 220)
     if not uid:
         return jsonify({'success': False, 'message': 'UID required'})
     if uid in auto_like_users:
@@ -1934,10 +1944,8 @@ def add_auto_user():
     auto_like_users.append(uid)
     user_stats[uid] = {'total_likes': 0, 'today_likes': 0, 'last_like': None, 'username': '', 'current_likes': 0}
     save_users()
-    global AUTO_LIKE_VERIFIED_LIMIT
-    AUTO_LIKE_VERIFIED_LIMIT = limit
-    add_activity_log(f"📌 Added {uid} to auto-queue (limit: {limit})", "info")
-    return jsonify({'success': True, 'message': f'Added {uid} with verified limit {limit}'})
+    add_activity_log(f"📌 Added {uid} to auto-queue", "info")
+    return jsonify({'success': True, 'message': f'Added {uid} to auto-queue'})
 
 @app.route('/delete-user', methods=['POST'])
 def delete_user():
@@ -1974,10 +1982,8 @@ def set_auto_time():
     data = request.get_json()
     hour = data.get('hour', 4)
     minute = data.get('minute', 0)
-    global RESET_HOUR, RESET_MINUTE
-    RESET_HOUR = hour
-    RESET_MINUTE = minute
-    return jsonify({'success': True, 'message': f'Auto-like time set to {hour:02d}:{minute:02d} IST'})
+    result = set_auto_time(hour, minute)
+    return jsonify({'success': True, 'message': result})
 
 @app.route('/like', methods=['GET'])
 def handle_requests():
@@ -2010,7 +2016,7 @@ def handle_requests():
 
     check_token = None
     for account in accounts[:3]:
-        check_token = asyncio.run(get_valid_token(account['uid'], account['password']))
+        check_token = asyncio.run(get_valid_token(account['uid'], account['password'], server_name))
         if check_token:
             break
     if not check_token:
@@ -2030,8 +2036,7 @@ def handle_requests():
     base_url = REGION_URLS.get(server_name, 'https://clientbp.ggpolarbear.com')
     like_url = f"{base_url}/LikeProfile"
 
-    limit = requested_likes if requested_likes and requested_likes > 0 else 50
-    result = asyncio.run(send_likes_with_verified_limit(uid, server_name, like_url, limit, 0))
+    result = asyncio.run(send_likes_all_accounts(uid, server_name, like_url))
     success_count = result['success']
 
     after = get_player_info(encrypted_uid, server_name, check_token)
@@ -2063,7 +2068,7 @@ def handle_requests():
         "status": status,
         "remains": f"({KEY_LIMIT - count}/{KEY_LIMIT})",
         "total_accounts": len(accounts),
-        "limit_requested": limit,
+        "limit_requested": requested_likes if requested_likes else "all",
         "skipped_24hr": result.get('skipped', 0),
         "accounts_used": result.get('accounts_used', 0),
         "failed": result.get('failed', 0),
@@ -2096,17 +2101,17 @@ reset_thread.start()
 auto_thread = threading.Thread(target=start_auto_like, daemon=True)
 auto_thread.start()
 
-threading.Thread(target=run_status_check).start()
+threading.Thread(target=run_status_check, args=("IND",)).start()
 
 add_activity_log("🚀 HEX CHEATS System Started", "info")
 add_activity_log(f"📁 Accounts: {len(load_accounts('IND'))} (IND)", "info")
 add_activity_log(f"📌 Auto-queue: {len(auto_like_users)} users", "info")
-add_activity_log("⏰ Auto-like at 4:00 AM IST daily", "info")
+add_activity_log(f"⏰ Auto-like at {AUTO_LIKE_HOUR:02d}:{AUTO_LIKE_MINUTE:02d} IST daily", "info")
 
-print("✅ HEX CHEATS – Final Version Started")
+print("✅ HEX CHEATS – Final Fixed Version Started")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 print("🔐 Login: HexMods / ADI444")
-print("⏰ Auto-like: Daily at 4:00 AM IST")
+print(f"⏰ Auto-like: {AUTO_LIKE_HOUR:02d}:{AUTO_LIKE_MINUTE:02d} IST daily")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
