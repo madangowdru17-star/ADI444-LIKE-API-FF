@@ -40,8 +40,9 @@ auto_like_users = []
 user_stats = {}
 like_history = []
 
+# Auto-like time: 4:00 AM IST
 RESET_HOUR = 4
-RESET_MINUTE = 2
+RESET_MINUTE = 0
 RESET_SECOND = 0
 AUTO_LIKE_LIMIT = 492
 AUTO_LIKE_VERIFIED_LIMIT = 220
@@ -492,7 +493,8 @@ async def auto_like_daily():
     while True:
         try:
             now = datetime.now()
-            target_time = now.replace(hour=RESET_HOUR, minute=RESET_MINUTE, second=RESET_SECOND, microsecond=0)
+            # Set to 4:00 AM IST
+            target_time = now.replace(hour=4, minute=0, second=0, microsecond=0)
             if now >= target_time:
                 target_time += timedelta(days=1)
             wait_seconds = (target_time - now).total_seconds()
@@ -502,7 +504,7 @@ async def auto_like_daily():
             
             add_activity_log(f"🔄 Starting auto-like at {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} IST", "info")
             
-            users_to_remove = []
+            # Process ALL users in queue (do NOT remove them)
             for user_uid in auto_like_users:
                 add_activity_log(f"📱 Processing user: {user_uid}", "info")
                 
@@ -510,12 +512,13 @@ async def auto_like_daily():
                 before_likes = user_info_before.get('likes', 0) if user_info_before else 0
                 before_name = user_info_before.get('name', 'Unknown') if user_info_before else 'Unknown'
                 
+                # Send likes FAST - all accounts at once
                 result = await send_likes_with_verified_limit(
                     user_uid,
                     "IND",
                     "https://client.ind.freefiremobile.com/LikeProfile",
-                    AUTO_LIKE_LIMIT,
-                    AUTO_LIKE_VERIFIED_LIMIT
+                    492,  # All accounts
+                    220   # Verified limit
                 )
                 likes_sent = result['success']
                 
@@ -527,22 +530,13 @@ async def auto_like_daily():
                     add_to_history(user_uid, likes_sent, before_likes, after_likes, username, "IND")
                     add_activity_log(f"✅ {username} | Before: {before_likes} | After: {after_likes} | Gained: {after_likes - before_likes}", "success")
                     if result['stopped']:
-                        add_activity_log(f"🛑 Verified limit {AUTO_LIKE_VERIFIED_LIMIT} reached! Stopped.", "info")
+                        add_activity_log(f"🛑 Verified limit reached! Stopped.", "info")
                 else:
                     add_activity_log(f"⚠️ {user_uid} | Failed to get profile", "error")
                 
-                if likes_sent > 0:
-                    users_to_remove.append(user_uid)
-                    add_activity_log(f"✅ Auto-removed: {user_uid}", "success")
-                
                 await asyncio.sleep(0.5)
             
-            for uid in users_to_remove:
-                if uid in auto_like_users:
-                    auto_like_users.remove(uid)
-                    save_users()
-            
-            add_activity_log(f"✅ Auto-like cycle complete. Removed {len(users_to_remove)} users.", "success")
+            add_activity_log(f"✅ Auto-like cycle complete. Processed {len(auto_like_users)} users.", "success")
             
         except Exception as e:
             add_activity_log(f"❌ Auto-like error: {str(e)}", "error")
@@ -705,7 +699,7 @@ LOGIN_HTML = '''
 '''
 
 # ============================================================
-# PREMIUM DASHBOARD – FINAL VERSION (TITLE CENTERED)
+# PREMIUM DASHBOARD – FINAL VERSION
 # ============================================================
 WEBSITE_HTML = '''
 <!DOCTYPE html>
@@ -1346,7 +1340,7 @@ WEBSITE_HTML = '''
         <div id="section-auto" class="section">
             <div class="panel">
                 <h2><i class="fas fa-clock"></i> Auto Like</h2>
-                <p style="color:#A8B3CF; margin-bottom:12px; font-size:0.85em;">Daily auto-like. All accounts send at same time. Stops after verified limit.</p>
+                <p style="color:#A8B3CF; margin-bottom:12px; font-size:0.85em;">Daily at 4:00 AM IST. All accounts send to queued UIDs.</p>
                 <div class="input-group">
                     <input type="number" id="target-uid-auto" placeholder="Enter Free Fire UID" />
                     <input type="number" id="auto-limit" placeholder="Verified Limit" value="220" style="width:130px;" />
@@ -1354,7 +1348,7 @@ WEBSITE_HTML = '''
                     <button class="btn btn-danger" onclick="deleteAllAuto()"><i class="fas fa-trash"></i> Clear</button>
                 </div>
                 <div class="user-list" id="auto-user-list"></div>
-                <div class="note"><i class="fas fa-info-circle"></i> Users auto-remove after successful like. Stops when verified limit reached.</div>
+                <div class="note"><i class="fas fa-info-circle"></i> UIDs stay in queue forever. Only manual removal deletes them.</div>
             </div>
         </div>
         
@@ -1425,7 +1419,7 @@ WEBSITE_HTML = '''
                     <label style="color:#A8B3CF; font-size:0.85em;">Auto-Like Time (IST)</label>
                     <div class="input-group" style="margin-top:6px;">
                         <input type="number" id="set-hour" placeholder="Hour" value="4" style="width:80px;" />
-                        <input type="number" id="set-minute" placeholder="Minute" value="2" style="width:80px;" />
+                        <input type="number" id="set-minute" placeholder="Minute" value="0" style="width:80px;" />
                         <button class="btn btn-primary" onclick="setAutoTime()"><i class="fas fa-save"></i> Save Time</button>
                     </div>
                 </div>
@@ -1913,9 +1907,6 @@ def send_likes():
         after_likes = before_likes
         username = before_name
     
-    # FIX: Manual likes do NOT auto-add to queue
-    # Only daily auto-like adds to queue
-    
     return jsonify({
         'success': likes_sent > 0,
         'likes_sent': likes_sent,
@@ -1982,7 +1973,7 @@ def set_auto_time():
     
     data = request.get_json()
     hour = data.get('hour', 4)
-    minute = data.get('minute', 2)
+    minute = data.get('minute', 0)
     global RESET_HOUR, RESET_MINUTE
     RESET_HOUR = hour
     RESET_MINUTE = minute
@@ -2110,11 +2101,12 @@ threading.Thread(target=run_status_check).start()
 add_activity_log("🚀 HEX CHEATS System Started", "info")
 add_activity_log(f"📁 Accounts: {len(load_accounts('IND'))} (IND)", "info")
 add_activity_log(f"📌 Auto-queue: {len(auto_like_users)} users", "info")
-add_activity_log("⏰ Auto-reset at 4:02 AM IST", "info")
+add_activity_log("⏰ Auto-like at 4:00 AM IST daily", "info")
 
 print("✅ HEX CHEATS – Final Version Started")
 print(f"📁 Accounts: {len(load_accounts('IND'))} (IND)")
 print("🔐 Login: HexMods / ADI444")
+print("⏰ Auto-like: Daily at 4:00 AM IST")
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5001))
